@@ -61,43 +61,42 @@ export function createCLI(): Command {
   // === lobster fetch <url> ===
   program
     .command('fetch <url>')
-    .description('Fetch a URL with browser (JS execution) and return structured content')
-    .option('-d, --dump <format>', 'Output format: markdown, snapshot, semantic, html, text', 'markdown')
-    .option('-w, --wait <seconds>', 'Wait after page load', '2')
-    .option('-e, --engine <engine>', 'Engine: auto, lightpanda, chrome', 'auto')
-    .option('--no-headless', 'Show browser window')
+    .description('Fetch a URL and return structured content (markdown, text, snapshot, html, links)')
+    .option('-d, --dump <format>', 'Output: markdown, snapshot, text, html, links', 'markdown')
+    .option('-w, --wait <seconds>', 'Wait after page load (chrome engine only)', '2')
+    .option('-e, --engine <engine>', 'Engine: auto, fast, chrome', 'auto')
+    .option('--no-headless', 'Show browser window (chrome engine only)')
     .action(async (url, opts) => {
       const config = loadConfig();
-      const { isLightpandaAvailable, lightpandaFetch, getInstallInstructions } = await import('./browser/lightpanda.js');
       const engine = opts.engine as string;
       const dump = opts.dump as string;
 
-      // ── Try Lightpanda first (fastest, no Chrome needed) ──
-      const useLightpanda = engine === 'lightpanda' || (engine === 'auto' && isLightpandaAvailable());
+      // ── Fast engine: in-house parser, no Chrome needed ──
+      const useFast = engine === 'fast' || engine === 'auto';
 
-      if (useLightpanda) {
-        if (!isLightpandaAvailable()) {
-          log.error('Lightpanda not found. Install:\n  ' + getInstallInstructions());
-          process.exit(1);
+      if (useFast) {
+        const { lobsterFetch } = await import('./browser/lightpanda.js');
+
+        try {
+          const result = await lobsterFetch(url, {
+            dump: dump as any,
+            timeout: 30000,
+          });
+
+          console.log(`URL: ${result.finalUrl}`);
+          console.log(`Title: ${result.title}`);
+          console.log(`Engine: fast (${result.duration}ms) | Status: ${result.status}`);
+          console.log(`---`);
+          console.log(result.content);
+          return;
+        } catch (err: any) {
+          if (engine === 'fast') throw err;
+          // auto mode: fast failed (probably needs JS), fall through to chrome
+          log.debug(`Fast engine failed: ${err.message}, falling back to Chrome`);
         }
-
-        log.info('Using Lightpanda (no Chrome needed)');
-        const start = Date.now();
-        const result = lightpandaFetch(url, { timeout: 30000, obeyRobots: false });
-        const elapsed = Date.now() - start;
-
-        console.log(`URL: ${url}`);
-        console.log(`Engine: lightpanda (${elapsed}ms)`);
-        console.log(`---`);
-        console.log(result.content);
-        return;
       }
 
-      // ── Chrome/Puppeteer path ──
-      if (engine === 'auto') {
-        log.debug('Lightpanda not found, using Chrome');
-      }
-
+      // ── Chrome engine: full browser with JS execution ──
       const { BrowserManager } = await import('./browser/manager.js');
       const { PuppeteerPage } = await import('./browser/page-adapter.js');
 
@@ -250,21 +249,10 @@ export function createCLI(): Command {
       console.log(`  Browser Path: ${config.browser.executablePath || 'auto-detect'}`);
       console.log(`  CDP Endpoint: ${config.browser.cdpEndpoint || 'none'}`);
 
-      // Check Lightpanda
-      console.log('\nLightpanda (fast, no Chrome):');
-      try {
-        const { isLightpandaAvailable, findLightpanda, getInstallInstructions } = await import('./browser/lightpanda.js');
-        if (isLightpandaAvailable()) {
-          console.log(`  Lightpanda: INSTALLED (${findLightpanda()})`);
-        } else {
-          console.log(`  Lightpanda: NOT INSTALLED`);
-          console.log(`  Install: ${getInstallInstructions()}`);
-        }
-      } catch (err) {
-        console.log(`  Lightpanda: check failed (${err})`);
-      }
+      // Check engines
+      console.log('\nEngines:');
+      console.log('  LobsterEngine (fast): BUILT-IN — in-house HTML parser, no Chrome needed');
 
-      // Check Chrome
       console.log('\nChrome (full browser):');
       try {
         const { BrowserManager } = await import('./browser/manager.js');
