@@ -191,16 +191,71 @@ export class PuppeteerPage implements IPage {
 
   async scroll(direction: 'up' | 'down' | 'left' | 'right', amount?: number): Promise<void> {
     const distance = amount || 500;
-    const dx = direction === 'left' ? -distance : direction === 'right' ? distance : 0;
-    const dy = direction === 'up' ? -distance : direction === 'down' ? distance : 0;
-    await this.page.evaluate((x, y) => window.scrollBy(x, y), dx, dy);
+    const isVertical = direction === 'up' || direction === 'down';
+    const positive = direction === 'down' || direction === 'right';
+    const delta = positive ? distance : -distance;
+
+    await this.page.evaluate((dy, dx, isVert) => {
+      // Helper: check if element is a valid scroll container
+      const canScroll = (el) => {
+        if (!el) return false;
+        const s = getComputedStyle(el);
+        if (isVert) {
+          return /(auto|scroll|overlay)/.test(s.overflowY) &&
+            el.scrollHeight > el.clientHeight &&
+            el.clientHeight >= window.innerHeight * 0.3;
+        } else {
+          return /(auto|scroll|overlay)/.test(s.overflowX) &&
+            el.scrollWidth > el.clientWidth &&
+            el.clientWidth >= window.innerWidth * 0.3;
+        }
+      };
+
+      // Walk from active element up to find a scrollable container
+      let el = document.activeElement;
+      while (el && !canScroll(el) && el !== document.body) {
+        el = el.parentElement;
+      }
+
+      // If no scrollable ancestor, search the DOM
+      if (!canScroll(el)) {
+        el = Array.from(document.querySelectorAll('*')).find(canScroll) || null;
+      }
+
+      const isPageLevel = !el || el === document.body ||
+        el === document.documentElement || el === document.scrollingElement;
+
+      if (isPageLevel) {
+        // Page-level scroll
+        if (isVert) {
+          window.scrollBy(0, dy);
+        } else {
+          window.scrollBy(dx, 0);
+        }
+      } else {
+        // Container scroll
+        if (isVert) {
+          el.scrollBy({ top: dy, behavior: 'smooth' });
+        } else {
+          el.scrollBy({ left: dx, behavior: 'smooth' });
+        }
+      }
+    }, isVertical ? delta : 0, isVertical ? 0 : delta, isVertical);
+
+    // Wait for smooth scroll to settle
+    await new Promise((r) => setTimeout(r, 150));
   }
 
   async scrollToElement(ref: string | number): Promise<void> {
     const selector = typeof ref === 'number' ? '[data-ref="' + ref + '"]' : ref;
     await this.page.evaluate((sel) => {
       const el = document.querySelector(sel);
-      if (el) el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      if (!el) return;
+      if (typeof (el as any).scrollIntoViewIfNeeded === 'function') {
+        (el as any).scrollIntoViewIfNeeded();
+      } else {
+        el.scrollIntoView({ behavior: 'auto', block: 'center', inline: 'nearest' });
+      }
     }, selector);
   }
 
