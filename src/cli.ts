@@ -58,6 +58,67 @@ export function createCLI(): Command {
       }
     });
 
+  // === lobster fetch <url> ===
+  program
+    .command('fetch <url>')
+    .description('Fetch a URL with browser (JS execution) and return structured content')
+    .option('-d, --dump <format>', 'Output format: markdown, snapshot, semantic, html, text', 'markdown')
+    .option('-w, --wait <seconds>', 'Wait after page load', '2')
+    .option('--no-headless', 'Show browser window')
+    .action(async (url, opts) => {
+      const config = loadConfig();
+      const { BrowserManager } = await import('./browser/manager.js');
+      const { PuppeteerPage } = await import('./browser/page-adapter.js');
+
+      const manager = new BrowserManager({
+        executablePath: config.browser.executablePath || undefined,
+        headless: opts.headless ?? config.browser.headless,
+      });
+
+      try {
+        const rawPage = await manager.newPage();
+        const page = new PuppeteerPage(rawPage);
+
+        await page.goto(url);
+        await page.wait(parseInt(opts.wait) || 2);
+
+        let output: string;
+        const dump = opts.dump as string;
+
+        switch (dump) {
+          case 'markdown': case 'md':
+            output = await page.markdown();
+            break;
+          case 'snapshot': case 'snap':
+            output = await page.snapshot();
+            break;
+          case 'semantic': case 'tree':
+            output = await page.semanticTree();
+            break;
+          case 'html':
+            output = await page.evaluate<string>('document.documentElement.outerHTML');
+            break;
+          case 'text':
+            output = await page.evaluate<string>('document.body.innerText');
+            break;
+          default:
+            output = await page.markdown();
+        }
+
+        // Also show browser state header
+        const state = await page.browserState();
+        console.log(`URL: ${state.url}`);
+        console.log(`Title: ${state.title}`);
+        console.log(`Page: ${state.pageWidth}x${state.pageHeight}px`);
+        console.log(`---`);
+        console.log(output);
+
+        await page.close();
+      } finally {
+        await manager.close();
+      }
+    });
+
   // === lobster list ===
   program
     .command('list')
