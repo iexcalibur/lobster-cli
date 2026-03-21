@@ -60,16 +60,35 @@ export class PuppeteerPage implements IPage {
 
   async click(ref: string | number): Promise<void> {
     if (typeof ref === 'number') {
-      // Click by highlight index — find element with data-ref attribute
       await this.page.evaluate((idx) => {
         const el = document.querySelector('[data-ref="' + idx + '"]') as HTMLElement;
-        if (el) {
-          el.scrollIntoView({ block: 'center' });
-          el.click();
-        } else {
-          throw new Error('Element with index ' + idx + ' not found');
+        if (!el) throw new Error('Element with index ' + idx + ' not found');
+
+        // Blur previously focused element
+        const prev = document.activeElement as HTMLElement | null;
+        if (prev && prev !== el && prev !== document.body) {
+          prev.blur();
+          prev.dispatchEvent(new MouseEvent('mouseout', { bubbles: true, cancelable: true }));
+          prev.dispatchEvent(new MouseEvent('mouseleave', { bubbles: false, cancelable: true }));
         }
+
+        // Scroll into view
+        if (typeof (el as any).scrollIntoViewIfNeeded === 'function') {
+          (el as any).scrollIntoViewIfNeeded();
+        } else {
+          el.scrollIntoView({ behavior: 'auto', block: 'center', inline: 'nearest' });
+        }
+
+        // Full mouse event sequence — required for React, analytics, custom handlers
+        el.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true, cancelable: true }));
+        el.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, cancelable: true }));
+        el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+        el.focus();
+        el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
+        el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
       }, ref);
+      // Wait for click processing (animations, state updates)
+      await new Promise((r) => setTimeout(r, 200));
     } else {
       await this.page.click(ref);
     }
@@ -77,17 +96,86 @@ export class PuppeteerPage implements IPage {
 
   async typeText(ref: string | number, text: string): Promise<void> {
     if (typeof ref === 'number') {
+      // First click the element (triggers full event sequence + focus)
+      await this.click(ref);
+
       await this.page.evaluate((idx, txt) => {
-        const el = document.querySelector('[data-ref="' + idx + '"]') as HTMLInputElement;
+        const el = document.querySelector('[data-ref="' + idx + '"]') as HTMLElement;
         if (!el) throw new Error('Element with index ' + idx + ' not found');
-        el.scrollIntoView({ block: 'center' });
-        el.focus();
-        el.value = txt;
-        el.dispatchEvent(new Event('input', { bubbles: true }));
-        el.dispatchEvent(new Event('change', { bubbles: true }));
+
+        const isInput = el.tagName === 'INPUT' || el.tagName === 'TEXTAREA';
+        const isContentEditable = el.isContentEditable;
+
+        if (isContentEditable) {
+          // ── Contenteditable: Plan A — synthetic InputEvents ──
+          // Works for: React contenteditable, Quill
+          // Clear existing content
+          if (el.dispatchEvent(new InputEvent('beforeinput', {
+            bubbles: true, cancelable: true, inputType: 'deleteContent',
+          }))) {
+            el.innerText = '';
+            el.dispatchEvent(new InputEvent('input', {
+              bubbles: true, inputType: 'deleteContent',
+            }));
+          }
+
+          // Insert new text
+          if (el.dispatchEvent(new InputEvent('beforeinput', {
+            bubbles: true, cancelable: true, inputType: 'insertText', data: txt,
+          }))) {
+            el.innerText = txt;
+            el.dispatchEvent(new InputEvent('input', {
+              bubbles: true, inputType: 'insertText', data: txt,
+            }));
+          }
+
+          // Verify Plan A worked
+          const planAOk = el.innerText.trim() === txt.trim();
+
+          if (!planAOk) {
+            // ── Plan B — execCommand fallback ──
+            // Works for: Slate.js, some rich-text editors
+            el.focus();
+            const doc = el.ownerDocument;
+            const sel = (doc.defaultView || window).getSelection();
+            const range = doc.createRange();
+            range.selectNodeContents(el);
+            sel?.removeAllRanges();
+            sel?.addRange(range);
+            doc.execCommand('delete', false);
+            doc.execCommand('insertText', false, txt);
+          }
+
+          el.dispatchEvent(new Event('change', { bubbles: true }));
+          el.blur();
+
+        } else if (isInput) {
+          // ── Input/Textarea: use native value setter to bypass React/Vue ──
+          const inputEl = el as HTMLInputElement | HTMLTextAreaElement;
+          const proto = Object.getPrototypeOf(inputEl);
+          const descriptor =
+            Object.getOwnPropertyDescriptor(proto, 'value') ||
+            Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value') ||
+            Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value');
+
+          if (descriptor?.set) {
+            descriptor.set.call(inputEl, txt);
+          } else {
+            inputEl.value = txt;
+          }
+
+          inputEl.dispatchEvent(new Event('input', { bubbles: true }));
+          inputEl.dispatchEvent(new Event('change', { bubbles: true }));
+        } else {
+          // Fallback: try setting value anyway
+          (el as any).value = txt;
+          el.dispatchEvent(new Event('input', { bubbles: true }));
+          el.dispatchEvent(new Event('change', { bubbles: true }));
+        }
       }, ref, text);
     } else {
-      await this.page.click(ref, { count: 3 }); // select all
+      // CSS selector path — click to focus, then use keyboard
+      await this.page.click(ref, { count: 3 });
       await this.page.keyboard.type(text);
     }
   }
