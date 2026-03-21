@@ -72,6 +72,30 @@ export interface FlatDomTree {
   map: Record<string, DomNode>;
 }
 
+export interface FormField {
+  tag: string;
+  type: string;
+  name: string;
+  label: string;
+  value: unknown;
+  required: boolean;
+  disabled: boolean;
+  ref: string | null;
+}
+
+export interface FormInfo {
+  id: string;
+  name: string;
+  action: string;
+  method: string;
+  fields: FormField[];
+}
+
+export interface FormState {
+  forms: FormInfo[];
+  orphanFields: FormField[];
+}
+
 export interface IPage {
   goto(url: string, options?: { waitUntil?: WaitCondition; timeout?: number }): Promise<void>;
   goBack(): Promise<void>;
@@ -83,6 +107,7 @@ export interface IPage {
   flatTree(): Promise<FlatDomTree>;
   markdown(): Promise<string>;
   browserState(): Promise<BrowserState>;
+  formState(): Promise<FormState>;
   click(ref: string | number): Promise<void>;
   typeText(ref: string | number, text: string): Promise<void>;
   pressKey(key: string): Promise<void>;

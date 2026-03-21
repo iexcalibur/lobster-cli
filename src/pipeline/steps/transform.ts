@@ -8,6 +8,36 @@ registerStep('select', async (ctx: PipelineContext, params: unknown): Promise<un
   let current: unknown = ctx.data;
   for (const part of parts) {
     if (current === null || current === undefined) return undefined;
+
+    // Array index: items[0], data[2]
+    const indexMatch = part.match(/^(\w+)\[(\d+)\]$/);
+    if (indexMatch) {
+      current = (current as Record<string, unknown>)[indexMatch[1]];
+      if (Array.isArray(current)) current = current[Number(indexMatch[2])];
+      else return undefined;
+      continue;
+    }
+
+    // Wildcard: items[*].title → flatten array
+    const wildcardMatch = part.match(/^(\w+)\[\*\]$/);
+    if (wildcardMatch) {
+      current = (current as Record<string, unknown>)[wildcardMatch[1]];
+      if (!Array.isArray(current)) return undefined;
+      // If there are more parts, map into each item
+      const remaining = parts.slice(parts.indexOf(part) + 1);
+      if (remaining.length > 0) {
+        return current.map((item) => {
+          let val: unknown = item;
+          for (const r of remaining) {
+            if (val === null || val === undefined) return undefined;
+            val = (val as Record<string, unknown>)[r];
+          }
+          return val;
+        });
+      }
+      continue;
+    }
+
     current = (current as Record<string, unknown>)[part];
   }
   return current;

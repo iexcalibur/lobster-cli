@@ -4,6 +4,7 @@ import './steps/browser.js';
 import './steps/transform.js';
 import './steps/intercept.js';
 import './steps/download.js';
+import './steps/tap.js';
 
 export { executePipeline } from './executor.js';
 export { renderTemplate } from './template.js';

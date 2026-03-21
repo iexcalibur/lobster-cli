@@ -9,6 +9,8 @@
  * - Artifact generation
  */
 
+import { writeFileSync, mkdirSync, existsSync } from 'node:fs';
+import { join } from 'node:path';
 import type { IPage } from '../types/page.js';
 import { log } from '../utils/logger.js';
 
@@ -62,6 +64,16 @@ export interface ExploreResult {
   framework?: string;
   stores?: { name: string; type: string; actions: string[] }[];
   capabilities: string[];
+  artifactDir?: string;
+}
+
+export interface ExploreOptions {
+  wait?: number;
+  scroll?: boolean;
+  fuzz?: boolean;
+  outputDir?: string;
+  maxButtons?: number;
+  scrollAttempts?: number;
 }
 
 /**
@@ -231,10 +243,209 @@ function inferCapabilities(endpoints: EndpointInfo[]): string[] {
   return caps;
 }
 
+/**
+ * Smart auto-scroll with MutationObserver-based lazy-load detection.
+ * Waits for new DOM nodes to appear after each scroll instead of fixed delays.
+ */
+async function smartAutoScroll(page: IPage, attempts: number): Promise<void> {
+  for (let i = 0; i < attempts; i++) {
+    const scrolled = await page.evaluate<boolean>(`
+      (async () => {
+        const lastHeight = document.body.scrollHeight;
+        window.scrollTo(0, lastHeight);
+
+        // Wait for new content via MutationObserver or timeout
+        const result = await new Promise((resolve) => {
+          let timeoutId;
+          const observer = new MutationObserver(() => {
+            if (document.body.scrollHeight > lastHeight) {
+              clearTimeout(timeoutId);
+              observer.disconnect();
+              setTimeout(() => resolve(true), 100);
+            }
+          });
+          observer.observe(document.body, { childList: true, subtree: true });
+          timeoutId = setTimeout(() => { observer.disconnect(); resolve(false); }, 2000);
+        });
+        return result;
+      })()
+    `);
+    if (!scrolled) break; // No new content loaded, stop scrolling
+  }
+}
+
+/**
+ * Interactive fuzzing — click buttons/tabs to trigger hidden API calls.
+ * Clicks up to maxButtons interactive elements that look like data triggers.
+ */
+async function interactiveFuzz(page: IPage, maxButtons: number): Promise<void> {
+  await page.evaluate(`
+    (async () => {
+      const clickTargets = [];
+      const selectors = [
+        'button:not([disabled])',
+        '[role="tab"]',
+        '[role="button"]',
+        '.tab', '.nav-link', '.dropdown-toggle',
+        'a[data-toggle]', '[data-bs-toggle]',
+      ];
+
+      for (const sel of selectors) {
+        for (const el of document.querySelectorAll(sel)) {
+          const rect = el.getBoundingClientRect();
+          if (rect.width > 0 && rect.height > 0 &&
+              rect.top >= 0 && rect.top < window.innerHeight * 2) {
+            const text = el.textContent?.trim()?.slice(0, 40) || '';
+            // Skip destructive-looking buttons
+            if (/delete|remove|logout|sign.?out|cancel|close/i.test(text)) continue;
+            clickTargets.push(el);
+          }
+        }
+      }
+
+      // Click up to N targets with delays
+      const max = Math.min(${maxButtons}, clickTargets.length);
+      for (let i = 0; i < max; i++) {
+        try {
+          clickTargets[i].click();
+          await new Promise(r => setTimeout(r, 800));
+        } catch {}
+      }
+    })()
+  `);
+  await page.wait(1.5);
+}
+
+/**
+ * Re-fetch JSON endpoints whose response body was missing from interception.
+ * Uses an iframe to avoid CORS issues (same-origin cookies).
+ */
+async function recoverMissingBodies(
+  page: IPage,
+  endpoints: EndpointInfo[],
+): Promise<void> {
+  const needsRecovery = endpoints.filter(
+    (ep) => !ep.hasItems && ep.contentType.includes('json') && ep.score > 5,
+  );
+
+  if (needsRecovery.length === 0) return;
+
+  const urls = needsRecovery.map((ep) => ep.url).slice(0, 8);
+
+  const bodies = await page.evaluate<(unknown | null)[]>(`
+    (async () => {
+      const urls = ${JSON.stringify(urls)};
+      const results = [];
+      for (const url of urls) {
+        try {
+          const resp = await fetch(url, { credentials: 'include' });
+          if (resp.ok) {
+            const json = await resp.json();
+            results.push(json);
+          } else {
+            results.push(null);
+          }
+        } catch { results.push(null); }
+      }
+      return results;
+    })()
+  `);
+
+  if (!bodies) return;
+
+  for (let i = 0; i < urls.length; i++) {
+    if (!bodies[i]) continue;
+    const ep = needsRecovery[i];
+    const analysis = analyzeResponseBody(bodies[i]);
+    if (analysis.hasItems) {
+      ep.hasItems = analysis.hasItems;
+      ep.itemCount = analysis.itemCount;
+      ep.fields = analysis.fields;
+      ep.fieldRoles = analysis.fieldRoles;
+      ep.score = scoreEndpoint(ep);
+    }
+  }
+}
+
+/**
+ * Write exploration artifacts to disk.
+ */
+function writeArtifacts(dir: string, result: ExploreResult): void {
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+
+  // manifest.json — site metadata
+  writeFileSync(join(dir, 'manifest.json'), JSON.stringify({
+    site: result.site,
+    domain: result.domain,
+    framework: result.framework,
+    strategy: result.strategy,
+    capabilities: result.capabilities,
+    endpointCount: result.endpoints.length,
+    exploredAt: new Date().toISOString(),
+  }, null, 2));
+
+  // endpoints.json — all discovered endpoints with scores/fields
+  writeFileSync(join(dir, 'endpoints.json'), JSON.stringify(
+    result.endpoints.map((ep) => ({
+      url: ep.url,
+      pattern: ep.pattern,
+      method: ep.method,
+      status: ep.status,
+      score: ep.score,
+      hasItems: ep.hasItems,
+      itemCount: ep.itemCount,
+      fields: ep.fields,
+      fieldRoles: ep.fieldRoles,
+      queryParams: ep.queryParams,
+      authIndicators: ep.authIndicators,
+    })),
+    null, 2,
+  ));
+
+  // capabilities.json — inferred CLI commands
+  writeFileSync(join(dir, 'capabilities.json'), JSON.stringify(
+    result.capabilities.map((cap) => {
+      const matchingEndpoints = result.endpoints.filter((ep) => {
+        const path = ep.url.toLowerCase();
+        if (cap === 'search') return /search|query|find/.test(path);
+        if (cap === 'hot') return /hot|trending|popular/.test(path);
+        if (cap === 'feed') return /feed|timeline|home/.test(path);
+        return false;
+      });
+      return {
+        name: cap,
+        description: `${cap} capability`,
+        endpoint: matchingEndpoints[0]?.pattern || null,
+        strategy: result.strategy,
+        confidence: matchingEndpoints.length > 0 ? 0.8 : 0.5,
+        recommendedColumns: matchingEndpoints[0]?.fields?.slice(0, 6) || [],
+      };
+    }),
+    null, 2,
+  ));
+
+  // auth.json — auth indicators
+  const authSummary: Record<string, string[]> = {};
+  for (const ep of result.endpoints) {
+    for (const ind of ep.authIndicators) {
+      if (!authSummary[ind]) authSummary[ind] = [];
+      authSummary[ind].push(ep.pattern);
+    }
+  }
+  writeFileSync(join(dir, 'auth.json'), JSON.stringify(authSummary, null, 2));
+
+  // stores.json — Vue/React stores if detected
+  if (result.stores && result.stores.length > 0) {
+    writeFileSync(join(dir, 'stores.json'), JSON.stringify(result.stores, null, 2));
+  }
+
+  log.success(`Artifacts written to ${dir}/`);
+}
+
 export async function exploreSite(
   page: IPage,
   url: string,
-  options?: { wait?: number; scroll?: boolean },
+  options?: ExploreOptions,
 ): Promise<ExploreResult> {
   const parsedUrl = new URL(url);
   const domain = parsedUrl.hostname;
@@ -247,12 +458,16 @@ export async function exploreSite(
   await page.goto(url);
   await page.wait(options?.wait || 3);
 
-  // Optional scroll to trigger lazy-loaded APIs
+  // Smart auto-scroll with MutationObserver lazy-load detection
   if (options?.scroll !== false) {
-    await page.scroll('down', 800);
-    await page.wait(1);
-    await page.scroll('down', 800);
-    await page.wait(1);
+    log.debug('Smart auto-scrolling to trigger lazy-loaded APIs...');
+    await smartAutoScroll(page, options?.scrollAttempts || 4);
+  }
+
+  // Interactive fuzzing — click buttons/tabs to discover hidden APIs
+  if (options?.fuzz !== false) {
+    log.debug('Fuzzing interactive elements...');
+    await interactiveFuzz(page, options?.maxButtons || 12);
   }
 
   // Capture intercepted network requests
@@ -295,16 +510,26 @@ export async function exploreSite(
     endpoints.push({ ...ep, score: scoreEndpoint(ep) });
   }
 
+  // Response body recovery — re-fetch endpoints that had missing bodies
+  log.debug('Recovering missing response bodies...');
+  await recoverMissingBodies(page, endpoints);
+
   endpoints.sort((a, b) => b.score - a.score);
 
   // Detect framework
   const framework = await page.evaluate<string>(`
     (() => {
+      const app = document.querySelector('#app');
       if (window.__NEXT_DATA__) return 'nextjs';
       if (window.__NUXT__) return 'nuxt';
-      if (window.__vue_app__) return 'vue';
-      if (window.__pinia) return 'vue+pinia';
-      if (window.__VUEX__) return 'vue+vuex';
+      if (app && app.__vue_app__) {
+        const gp = app.__vue_app__.config?.globalProperties;
+        if (gp?.$pinia) return 'vue+pinia';
+        if (gp?.$store) return 'vue+vuex';
+        return 'vue';
+      }
+      if (app && app.__vue__) return 'vue2';
+      if (window.__REACT_DEVTOOLS_GLOBAL_HOOK__) return 'react';
       if (document.querySelector('[data-reactroot]') || document.querySelector('#__next') || document.querySelector('#root')?.['_reactRootContainer']) return 'react';
       if (window.angular || document.querySelector('[ng-version]')) return 'angular';
       if (window.__svelte_meta) return 'svelte';
@@ -312,12 +537,41 @@ export async function exploreSite(
     })()
   `).catch(() => 'unknown');
 
-  // Detect stores (Pinia/Vuex)
+  // Detect stores (Pinia/Vuex) — improved detection via __vue_app__
   const stores = await page.evaluate<{ name: string; type: string; actions: string[] }[]>(`
     (() => {
       const results = [];
-      // Pinia
-      if (window.__pinia) {
+      const app = document.querySelector('#app');
+
+      // Pinia via __vue_app__
+      if (app && app.__vue_app__) {
+        try {
+          const pinia = app.__vue_app__.config?.globalProperties?.$pinia;
+          if (pinia && pinia._s) {
+            pinia._s.forEach((store, id) => {
+              const actions = Object.keys(store).filter(k =>
+                typeof store[k] === 'function' && !k.startsWith('$') && !k.startsWith('_')
+              );
+              const stateKeys = Object.keys(store).filter(k =>
+                typeof store[k] !== 'function' && !k.startsWith('$') && !k.startsWith('_')
+              );
+              results.push({ name: id, type: 'pinia', actions: actions.slice(0, 20), stateKeys: stateKeys.slice(0, 20) });
+            });
+          }
+        } catch {}
+
+        // Vuex via __vue_app__
+        try {
+          const store = app.__vue_app__.config?.globalProperties?.$store;
+          if (store && store._actions) {
+            const actions = Object.keys(store._actions);
+            results.push({ name: 'vuex', type: 'vuex', actions: actions.slice(0, 20) });
+          }
+        } catch {}
+      }
+
+      // Legacy Pinia global
+      if (results.length === 0 && window.__pinia) {
         try {
           const pinia = window.__pinia;
           for (const [id, store] of pinia._s || []) {
@@ -326,14 +580,7 @@ export async function exploreSite(
           }
         } catch {}
       }
-      // Vuex
-      if (window.__VUEX__) {
-        try {
-          const store = window.__VUEX__;
-          const actions = Object.keys(store._actions || {});
-          results.push({ name: 'vuex', type: 'vuex', actions: actions.slice(0, 20) });
-        } catch {}
-      }
+
       return results;
     })()
   `).catch(() => []);
@@ -351,7 +598,7 @@ export async function exploreSite(
 
   const capabilities = inferCapabilities(endpoints);
 
-  return {
+  const result: ExploreResult = {
     site,
     domain,
     endpoints: endpoints.slice(0, 30),
@@ -360,4 +607,11 @@ export async function exploreSite(
     stores: stores.length > 0 ? stores : undefined,
     capabilities,
   };
+
+  // Write artifacts to disk if outputDir specified
+  const outputDir = options?.outputDir || join(process.cwd(), '.lobster', 'explore', site);
+  writeArtifacts(outputDir, result);
+  result.artifactDir = outputDir;
+
+  return result;
 }

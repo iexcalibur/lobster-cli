@@ -1,12 +1,13 @@
 import type { Page } from 'puppeteer-core';
 import type {
   IPage, WaitCondition, Cookie, NetworkEntry, TabInfo,
-  SnapshotOptions, SemanticTreeOptions, FlatDomTree, BrowserState,
+  SnapshotOptions, SemanticTreeOptions, FlatDomTree, BrowserState, FormState,
 } from '../types/page.js';
 import { FLAT_TREE_SCRIPT, flatTreeToString } from './dom/flat-tree.js';
 import { SNAPSHOT_SCRIPT } from './dom/snapshot.js';
 import { SEMANTIC_TREE_SCRIPT } from './dom/semantic-tree.js';
 import { MARKDOWN_SCRIPT } from './dom/markdown.js';
+import { FORM_STATE_SCRIPT } from './dom/form-state.js';
 import { buildInterceptorScript, GET_INTERCEPTED_SCRIPT } from './interceptor.js';
 
 export class PuppeteerPage implements IPage {
@@ -84,6 +85,10 @@ export class PuppeteerPage implements IPage {
       })()
     `) as BrowserState;
     return state;
+  }
+
+  async formState(): Promise<FormState> {
+    return this.page.evaluate(FORM_STATE_SCRIPT) as Promise<FormState>;
   }
 
   async click(ref: string | number): Promise<void> {
@@ -321,9 +326,27 @@ export class PuppeteerPage implements IPage {
     }
   }
 
-  async networkRequests(_includeStatic?: boolean): Promise<NetworkEntry[]> {
-    // Note: basic implementation — for full network capture, CDP instrumentation needed
-    return [];
+  async networkRequests(includeStatic?: boolean): Promise<NetworkEntry[]> {
+    // Use Performance API to extract network requests from the browser
+    const entries = await this.page.evaluate(`
+      (() => {
+        const entries = performance.getEntriesByType('resource');
+        const staticTypes = new Set(['img', 'font', 'css', 'script', 'link']);
+        const includeStatic = ${!!includeStatic};
+
+        return entries
+          .filter(e => includeStatic || !staticTypes.has(e.initiatorType))
+          .map(e => ({
+            url: e.name,
+            method: 'GET',
+            status: 200,
+            type: e.initiatorType || 'other',
+            size: e.transferSize || e.encodedBodySize || 0,
+            duration: Math.round(e.duration),
+          }));
+      })()
+    `) as NetworkEntry[];
+    return entries || [];
   }
 
   async installInterceptor(pattern: string): Promise<void> {

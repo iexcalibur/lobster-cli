@@ -16,9 +16,28 @@
  * 11. data-ref annotation for targeting
  * 12. Token-efficient serialization with interactive indices
  */
+/**
+ * Build snapshot script with optional previous hashes for diff marking.
+ * Elements new since last snapshot get a `*` prefix on their index.
+ */
+export function buildSnapshotScript(previousHashes?: string[]): string {
+  return SNAPSHOT_SCRIPT_FN(previousHashes || []);
+}
+
+function SNAPSHOT_SCRIPT_FN(prevHashes: string[]): string {
+  return `
+(() => {
+  let idx = 0;
+  const __prevHashes = new Set(${JSON.stringify(prevHashes)});
+  const __currentHashes = [];
+`;
+}
+
 export const SNAPSHOT_SCRIPT = `
 (() => {
   let idx = 0;
+  const __prevHashes = (window.__lobster_prev_hashes) ? new Set(window.__lobster_prev_hashes) : null;
+  const __currentHashes = [];
 
   const SKIP_TAGS = new Set([
     'script','style','noscript','svg','path','meta','link','head',
@@ -238,7 +257,15 @@ export const SNAPSHOT_SCRIPT = `
 
     const indent = '  '.repeat(depth);
     const inter = !skipSelf && isInteractive(el);
-    const prefix = inter ? '[' + (idx++) + ']' : '';
+    let prefix = '';
+    if (inter) {
+      const thisIdx = idx++;
+      // Hash: tag + text + key attributes for diff tracking
+      const hashText = tag + ':' + (el.textContent || '').trim().slice(0, 40) + ':' + (el.getAttribute('href') || '') + ':' + (el.getAttribute('aria-label') || '');
+      __currentHashes.push(hashText);
+      const isNew = __prevHashes && __prevHashes.size > 0 && !__prevHashes.has(hashText);
+      prefix = isNew ? '*[' + thisIdx + ']' : '[' + thisIdx + ']';
+    }
 
     // ── Stage 11: Annotate with data-ref ──
     if (inter) {
@@ -318,6 +345,9 @@ export const SNAPSHOT_SCRIPT = `
   if (scrollY > 50) header += ' (' + Math.round(scrollY) + 'px from top)';
   if (scrollMax - scrollY > 50) header += ' (' + Math.round(scrollMax - scrollY) + 'px more below)';
   header += '\\n---\\n';
+
+  // Store current hashes for next diff comparison
+  window.__lobster_prev_hashes = __currentHashes;
 
   return header + walkNode(document.body, 0, MAX_DEPTH);
 })()
