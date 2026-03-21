@@ -59,3 +59,28 @@ export interface ExecutionResult {
   data: string;
   history: HistoricalEvent[];
 }
+
+// ── Event system types ──
+export type AgentEventType = 'statuschange' | 'historychange' | 'activity';
+
+export interface StatusChangeEvent {
+  type: 'statuschange';
+  status: AgentStatus;
+  previousStatus: AgentStatus;
+}
+
+export interface HistoryChangeEvent {
+  type: 'historychange';
+  history: HistoricalEvent[];
+}
+
+export interface ActivityEvent {
+  type: 'activity';
+  kind: 'thinking' | 'executing' | 'executed' | 'retrying' | 'error' | 'observation';
+  message: string;
+  step?: number;
+  duration?: number;
+}
+
+export type AgentEvent = StatusChangeEvent | HistoryChangeEvent | ActivityEvent;
+export type AgentEventListener = (event: AgentEvent) => void;

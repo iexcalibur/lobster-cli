@@ -169,6 +169,21 @@ function applyFilter(value: unknown, filter: string): unknown {
       return JSON.stringify(value);
     case 'slugify':
       return typeof value === 'string' ? value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') : value;
+    case 'sanitize':
+      // Filename-safe: remove/replace dangerous chars
+      return typeof value === 'string' ? value.replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').replace(/__+/g, '_').trim() : value;
+    case 'ext': {
+      // Extract file extension from URL/path
+      if (typeof value !== 'string') return '';
+      const extMatch = value.match(/\.([a-zA-Z0-9]+)(?:\?.*)?$/);
+      return extMatch ? extMatch[1] : '';
+    }
+    case 'basename': {
+      // Extract filename from URL/path
+      if (typeof value !== 'string') return '';
+      try { return new URL(value).pathname.split('/').pop() || ''; } catch {}
+      return value.split('/').pop() || '';
+    }
     default:
       return value;
   }

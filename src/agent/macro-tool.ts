@@ -34,7 +34,7 @@ export function packMacroTool(
     schema: macroSchema,
     execute: async (args: Record<string, unknown>) => {
       // Normalize messy LLM output
-      const normalized = normalizeResponse(args, 'AgentOutput', toolNames);
+      const normalized = normalizeResponse(args, 'AgentOutput', toolNames, tools);
       const action = normalized.action as Record<string, unknown>;
 
       // Find the tool to execute

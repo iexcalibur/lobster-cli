@@ -2,7 +2,11 @@ import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { IPage } from '../types/page.js';
-import type { AgentConfig, AgentTool, ExecutionResult, HistoricalEvent, AgentStepEvent, ObservationEvent } from '../types/agent.js';
+import type {
+  AgentConfig, AgentTool, ExecutionResult, HistoricalEvent,
+  AgentStepEvent, ObservationEvent, AgentStatus,
+  AgentEvent, AgentEventListener, AgentEventType,
+} from '../types/agent.js';
 import { LLM } from '../llm/client.js';
 import type { Message } from '../types/llm.js';
 import { createDefaultTools } from './tools/index.js';
@@ -17,7 +21,10 @@ export class AgentCore {
   private config: AgentConfig;
   private llm: LLM;
   private history: HistoricalEvent[] = [];
-  private status: 'idle' | 'running' | 'completed' | 'error' = 'idle';
+  private _status: AgentStatus = 'idle';
+  private listeners = new Map<AgentEventType, Set<AgentEventListener>>();
+  private previousElementHashes = new Set<string>();
+  private totalWaitTime = 0;
 
   constructor(page: IPage, config: AgentConfig) {
     this.page = page;
@@ -25,9 +32,43 @@ export class AgentCore {
     this.llm = new LLM(config.llm);
   }
 
+  // ── Event system ──
+  on(event: AgentEventType, listener: AgentEventListener): void {
+    if (!this.listeners.has(event)) this.listeners.set(event, new Set());
+    this.listeners.get(event)!.add(listener);
+  }
+
+  off(event: AgentEventType, listener: AgentEventListener): void {
+    this.listeners.get(event)?.delete(listener);
+  }
+
+  private emit(event: AgentEvent): void {
+    const listeners = this.listeners.get(event.type as AgentEventType);
+    if (listeners) {
+      for (const fn of listeners) {
+        try { fn(event); } catch {}
+      }
+    }
+  }
+
+  get status(): AgentStatus { return this._status; }
+
+  private setStatus(newStatus: AgentStatus): void {
+    const prev = this._status;
+    this._status = newStatus;
+    this.emit({ type: 'statuschange', status: newStatus, previousStatus: prev });
+  }
+
+  private pushHistory(event: HistoricalEvent): void {
+    this.history.push(event);
+    this.emit({ type: 'historychange', history: this.history });
+  }
+
   async execute(task: string, abortSignal?: AbortSignal): Promise<ExecutionResult> {
-    this.status = 'running';
+    this.setStatus('running');
     this.history = [];
+    this.previousElementHashes.clear();
+    this.totalWaitTime = 0;
 
     const maxSteps = this.config.maxSteps ?? 40;
     const stepDelay = this.config.stepDelay ?? 0.4;
@@ -37,8 +78,6 @@ export class AgentCore {
       ...createDefaultTools(this.page),
       ...(this.config.customTools || {}),
     };
-
-    // Remove nulled tools
     for (const [name, tool] of Object.entries(tools)) {
       if (tool === null) delete tools[name];
     }
@@ -61,48 +100,80 @@ export class AgentCore {
 
     for (let step = 1; step <= maxSteps; step++) {
       if (abortSignal?.aborted) {
-        this.status = 'error';
+        this.setStatus('error');
         return { success: false, data: 'Aborted', history: this.history };
       }
 
-      // Observe
-      const currentURL = await this.page.url().catch(() => '');
+      // ── Observe phase ──
+      const browserState = await this.page.browserState().catch(() => ({
+        url: '', title: '', viewportWidth: 0, viewportHeight: 0,
+        pageWidth: 0, pageHeight: 0, scrollX: 0, scrollY: 0,
+        scrollPercent: 0, pixelsAbove: 0, pixelsBelow: 0,
+      }));
+
       const flatTree = await this.page.flatTree().catch(() => ({ rootId: '', map: {} }));
       const pageContent = flatTreeToString(flatTree);
-      const pageTitle = await this.page.title().catch(() => '');
 
-      // Detect URL changes
+      // ── New element tracking ──
+      const currentHashes = new Set<string>();
+      let newElementCount = 0;
+      for (const node of Object.values(flatTree.map)) {
+        if (node.isInteractive && node.highlightIndex !== undefined) {
+          const hash = `${node.tagName}:${node.text || ''}:${JSON.stringify(node.attributes || {})}`;
+          currentHashes.add(hash);
+          if (!this.previousElementHashes.has(hash)) {
+            newElementCount++;
+          }
+        }
+      }
+      this.previousElementHashes = currentHashes;
+
+      // ── Build observations ──
       const observations: string[] = [];
-      if (currentURL !== lastURL && lastURL) {
-        observations.push(`Navigated from ${lastURL} to ${currentURL}`);
+      if (browserState.url !== lastURL && lastURL) {
+        observations.push(`Navigated to ${browserState.url}`);
       }
-      lastURL = currentURL;
+      lastURL = browserState.url;
 
-      // Page instructions
+      if (newElementCount > 0 && step > 1) {
+        observations.push(`${newElementCount} new interactive element(s) appeared`);
+      }
+
+      if (this.totalWaitTime > 3) {
+        observations.push(`Total wait time: ${this.totalWaitTime.toFixed(1)}s — consider if page is still loading`);
+      }
+
+      if (step >= maxSteps - 5) {
+        observations.push(`Warning: ${maxSteps - step} steps remaining`);
+      }
+
       if (this.config.instructions?.getPageInstructions) {
-        const pageInstructions = this.config.instructions.getPageInstructions(currentURL);
-        if (pageInstructions) observations.push(`Page instructions: ${pageInstructions}`);
+        try {
+          const pi = this.config.instructions.getPageInstructions(browserState.url);
+          if (pi) observations.push(`Page instructions: ${pi}`);
+        } catch {}
       }
 
-      // Add observations to history
       for (const obs of observations) {
-        this.history.push({ type: 'observation', message: obs } as ObservationEvent);
+        this.pushHistory({ type: 'observation', message: obs } as ObservationEvent);
+        this.emit({ type: 'activity', kind: 'observation', message: obs, step });
       }
 
-      // Assemble user prompt
-      const userPrompt = assembleUserPrompt(task, pageContent, currentURL, pageTitle, this.history, step, maxSteps);
+      // ── Assemble user prompt with browser state ──
+      const userPrompt = assembleUserPrompt(
+        task, pageContent, browserState, this.history, step, maxSteps,
+      );
 
-      // Think
+      // ── Think phase ──
       const messages: Message[] = [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },
       ];
 
-      log.step(step, `Thinking... (${currentURL})`);
+      log.step(step, `Thinking... (${browserState.url})`);
+      this.emit({ type: 'activity', kind: 'thinking', message: `Step ${step}: thinking`, step });
 
-      if (this.config.onBeforeStep) {
-        await this.config.onBeforeStep(step);
-      }
+      if (this.config.onBeforeStep) await this.config.onBeforeStep(step);
 
       const startTime = Date.now();
       let result;
@@ -110,18 +181,25 @@ export class AgentCore {
         result = await this.llm.invoke(messages, macroTool, abortSignal);
       } catch (err) {
         log.error(`LLM error at step ${step}: ${err}`);
-        this.history.push({ type: 'error', error: String(err), step });
+        this.pushHistory({ type: 'error', error: String(err), step });
+        this.emit({ type: 'activity', kind: 'error', message: String(err), step });
         continue;
       }
-
       const duration = Date.now() - startTime;
 
-      // Parse the action
+      // ── Act phase ──
       const args = result.toolCall.args;
       const action = (args.action || args) as Record<string, unknown>;
       const [actionName, actionInput] = Object.entries(action)[0] || ['unknown', {}];
 
-      // Record step
+      this.emit({ type: 'activity', kind: 'executing', message: actionName, step });
+
+      // Track wait time
+      if (actionName === 'wait') {
+        const secs = (actionInput as any)?.seconds || 0;
+        this.totalWaitTime += secs;
+      }
+
       const stepEvent: AgentStepEvent = {
         type: 'step',
         step,
@@ -134,37 +212,31 @@ export class AgentCore {
         output: result.toolResult,
         duration,
       };
-      this.history.push(stepEvent);
+      this.pushHistory(stepEvent);
 
       log.step(step, `Action: ${actionName} → ${result.toolResult.slice(0, 100)}`);
+      this.emit({ type: 'activity', kind: 'executed', message: `${actionName}: ${result.toolResult.slice(0, 80)}`, step, duration });
 
-      if (this.config.onAfterStep) {
-        await this.config.onAfterStep(this.history);
-      }
+      if (this.config.onAfterStep) await this.config.onAfterStep(this.history);
 
       // Check for done
       if (actionName === 'done') {
         try {
           const doneResult = JSON.parse(result.toolResult);
-          this.status = 'completed';
-          return {
-            success: doneResult.success,
-            data: doneResult.text || result.toolResult,
-            history: this.history,
-          };
+          this.setStatus('completed');
+          return { success: doneResult.success, data: doneResult.text || result.toolResult, history: this.history };
         } catch {
-          this.status = 'completed';
+          this.setStatus('completed');
           return { success: true, data: result.toolResult, history: this.history };
         }
       }
 
-      // Step delay
       if (stepDelay > 0) {
         await new Promise((r) => setTimeout(r, stepDelay * 1000));
       }
     }
 
-    this.status = 'error';
+    this.setStatus('error');
     return { success: false, data: `Reached maximum steps (${maxSteps})`, history: this.history };
   }
 }
@@ -172,19 +244,28 @@ export class AgentCore {
 function assembleUserPrompt(
   task: string,
   pageContent: string,
-  url: string,
-  title: string,
+  state: { url: string; title: string; viewportWidth: number; viewportHeight: number; pageHeight: number; scrollPercent: number; pixelsAbove: number; pixelsBelow: number },
   history: HistoricalEvent[],
   step: number,
-  maxSteps: number
+  maxSteps: number,
 ): string {
   let prompt = `# Task\n${task}\n\n`;
-  prompt += `# Current Page\nURL: ${url}\nTitle: ${title}\nStep: ${step}/${maxSteps}\n\n`;
+
+  // Browser state header
+  prompt += `# Current Page\n`;
+  prompt += `URL: ${state.url}\n`;
+  prompt += `Title: ${state.title}\n`;
+  prompt += `Viewport: ${state.viewportWidth}x${state.viewportHeight} | Page height: ${state.pageHeight}px\n`;
+  prompt += `Scroll: ${state.scrollPercent}%`;
+  if (state.pixelsAbove > 50) prompt += ` | ${state.pixelsAbove}px above`;
+  if (state.pixelsBelow > 50) prompt += ` | ${state.pixelsBelow}px below`;
+  prompt += `\nStep: ${step}/${maxSteps}\n\n`;
+
   prompt += `# Browser State\n${pageContent}\n\n`;
 
   if (history.length > 0) {
     prompt += `# History\n`;
-    const recent = history.slice(-10); // Last 10 events
+    const recent = history.slice(-10);
     for (const event of recent) {
       if (event.type === 'step') {
         const s = event as AgentStepEvent;

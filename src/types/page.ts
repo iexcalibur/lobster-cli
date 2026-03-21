@@ -1,5 +1,19 @@
 export type WaitCondition = 'load' | 'domcontentloaded' | 'networkidle0' | 'networkidle2';
 
+export interface BrowserState {
+  url: string;
+  title: string;
+  viewportWidth: number;
+  viewportHeight: number;
+  pageWidth: number;
+  pageHeight: number;
+  scrollX: number;
+  scrollY: number;
+  scrollPercent: number;
+  pixelsAbove: number;
+  pixelsBelow: number;
+}
+
 export interface Cookie {
   name: string;
   value: string;
@@ -68,6 +82,7 @@ export interface IPage {
   semanticTree(opts?: SemanticTreeOptions): Promise<string>;
   flatTree(): Promise<FlatDomTree>;
   markdown(): Promise<string>;
+  browserState(): Promise<BrowserState>;
   click(ref: string | number): Promise<void>;
   typeText(ref: string | number, text: string): Promise<void>;
   pressKey(key: string): Promise<void>;

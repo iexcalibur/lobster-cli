@@ -1,7 +1,7 @@
 import type { Page } from 'puppeteer-core';
 import type {
   IPage, WaitCondition, Cookie, NetworkEntry, TabInfo,
-  SnapshotOptions, SemanticTreeOptions, FlatDomTree,
+  SnapshotOptions, SemanticTreeOptions, FlatDomTree, BrowserState,
 } from '../types/page.js';
 import { FLAT_TREE_SCRIPT, flatTreeToString } from './dom/flat-tree.js';
 import { SNAPSHOT_SCRIPT } from './dom/snapshot.js';
@@ -56,6 +56,34 @@ export class PuppeteerPage implements IPage {
 
   async markdown(): Promise<string> {
     return this.page.evaluate(MARKDOWN_SCRIPT) as Promise<string>;
+  }
+
+  async browserState(): Promise<BrowserState> {
+    const state = await this.page.evaluate(`
+      (() => {
+        const scrollY = window.scrollY;
+        const scrollX = window.scrollX;
+        const vpW = window.innerWidth;
+        const vpH = window.innerHeight;
+        const pageW = document.documentElement.scrollWidth;
+        const pageH = document.documentElement.scrollHeight;
+        const maxScrollY = pageH - vpH;
+        return {
+          url: location.href,
+          title: document.title,
+          viewportWidth: vpW,
+          viewportHeight: vpH,
+          pageWidth: pageW,
+          pageHeight: pageH,
+          scrollX: scrollX,
+          scrollY: scrollY,
+          scrollPercent: maxScrollY > 0 ? Math.round((scrollY / maxScrollY) * 100) : 0,
+          pixelsAbove: Math.round(scrollY),
+          pixelsBelow: Math.round(Math.max(0, maxScrollY - scrollY)),
+        };
+      })()
+    `) as BrowserState;
+    return state;
   }
 
   async click(ref: string | number): Promise<void> {
