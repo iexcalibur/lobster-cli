@@ -1,0 +1,85 @@
+export type WaitCondition = 'load' | 'domcontentloaded' | 'networkidle0' | 'networkidle2';
+
+export interface Cookie {
+  name: string;
+  value: string;
+  domain?: string;
+  path?: string;
+  expires?: number;
+  httpOnly?: boolean;
+  secure?: boolean;
+  sameSite?: 'Strict' | 'Lax' | 'None';
+}
+
+export interface NetworkEntry {
+  url: string;
+  method: string;
+  status: number;
+  type: string;
+  size: number;
+  responseBody?: unknown;
+}
+
+export interface TabInfo {
+  id: number;
+  url: string;
+  title: string;
+  active: boolean;
+}
+
+export interface SnapshotOptions {
+  interactive?: boolean;
+  compact?: boolean;
+  maxDepth?: number;
+}
+
+export interface SemanticTreeOptions {
+  maxDepth?: number;
+  interactiveOnly?: boolean;
+  prune?: boolean;
+}
+
+export interface DomNode {
+  id: string;
+  tagName: string;
+  text?: string;
+  attributes?: Record<string, string>;
+  children?: string[];
+  parentId?: string;
+  isInteractive?: boolean;
+  highlightIndex?: number;
+  role?: string;
+  ariaLabel?: string;
+  scrollable?: { left: number; top: number; right: number; bottom: number };
+}
+
+export interface FlatDomTree {
+  rootId: string;
+  map: Record<string, DomNode>;
+}
+
+export interface IPage {
+  goto(url: string, options?: { waitUntil?: WaitCondition; timeout?: number }): Promise<void>;
+  goBack(): Promise<void>;
+  url(): Promise<string>;
+  title(): Promise<string>;
+  evaluate<T = unknown>(js: string): Promise<T>;
+  snapshot(opts?: SnapshotOptions): Promise<string>;
+  semanticTree(opts?: SemanticTreeOptions): Promise<string>;
+  flatTree(): Promise<FlatDomTree>;
+  markdown(): Promise<string>;
+  click(ref: string | number): Promise<void>;
+  typeText(ref: string | number, text: string): Promise<void>;
+  pressKey(key: string): Promise<void>;
+  selectOption(ref: string | number, value: string): Promise<void>;
+  scroll(direction: 'up' | 'down' | 'left' | 'right', amount?: number): Promise<void>;
+  scrollToElement(ref: string | number): Promise<void>;
+  getCookies(opts?: { domain?: string }): Promise<Cookie[]>;
+  wait(options: number | { text?: string; time?: number; timeout?: number }): Promise<void>;
+  networkRequests(includeStatic?: boolean): Promise<NetworkEntry[]>;
+  installInterceptor(pattern: string): Promise<void>;
+  getInterceptedRequests(): Promise<unknown[]>;
+  screenshot(opts?: { format?: 'png' | 'jpeg'; fullPage?: boolean }): Promise<Buffer>;
+  tabs(): Promise<TabInfo[]>;
+  close(): Promise<void>;
+}

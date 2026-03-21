@@ -1,0 +1,41 @@
+{
+  "name": "lobster-cli",
+  "version": "0.1.0",
+  "description": "Unified CLI for intelligent web automation — adapters, pipelines, AI agents, and headless browsing in one tool",
+  "type": "module",
+  "bin": {
+    "lobster": "./dist/index.js"
+  },
+  "exports": {
+    ".": "./dist/index.js",
+    "./registry": "./dist/adapter/registry.js"
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": ["cli", "web-automation", "ai-agent", "scraping", "browser", "puppeteer"],
+  "author": "iexcalibur",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "chalk": "^5.3.0",
+    "cli-table3": "^0.6.5",
+    "commander": "^14.0.0",
+    "js-yaml": "^4.1.0",
+    "puppeteer-core": "^24.0.0",
+    "ws": "^8.18.0",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^22.0.0",
+    "@types/ws": "^8.5.0",
+    "tsup": "^8.4.0",
+    "typescript": "^5.8.0"
+  }
+}
