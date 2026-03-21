@@ -64,9 +64,40 @@ export function createCLI(): Command {
     .description('Fetch a URL with browser (JS execution) and return structured content')
     .option('-d, --dump <format>', 'Output format: markdown, snapshot, semantic, html, text', 'markdown')
     .option('-w, --wait <seconds>', 'Wait after page load', '2')
+    .option('-e, --engine <engine>', 'Engine: auto, lightpanda, chrome', 'auto')
     .option('--no-headless', 'Show browser window')
     .action(async (url, opts) => {
       const config = loadConfig();
+      const { isLightpandaAvailable, lightpandaFetch, getInstallInstructions } = await import('./browser/lightpanda.js');
+      const engine = opts.engine as string;
+      const dump = opts.dump as string;
+
+      // ── Try Lightpanda first (fastest, no Chrome needed) ──
+      const useLightpanda = engine === 'lightpanda' || (engine === 'auto' && isLightpandaAvailable());
+
+      if (useLightpanda) {
+        if (!isLightpandaAvailable()) {
+          log.error('Lightpanda not found. Install:\n  ' + getInstallInstructions());
+          process.exit(1);
+        }
+
+        log.info('Using Lightpanda (no Chrome needed)');
+        const start = Date.now();
+        const result = lightpandaFetch(url, { timeout: 30000, obeyRobots: false });
+        const elapsed = Date.now() - start;
+
+        console.log(`URL: ${url}`);
+        console.log(`Engine: lightpanda (${elapsed}ms)`);
+        console.log(`---`);
+        console.log(result.content);
+        return;
+      }
+
+      // ── Chrome/Puppeteer path ──
+      if (engine === 'auto') {
+        log.debug('Lightpanda not found, using Chrome');
+      }
+
       const { BrowserManager } = await import('./browser/manager.js');
       const { PuppeteerPage } = await import('./browser/page-adapter.js');
 
@@ -78,12 +109,12 @@ export function createCLI(): Command {
       try {
         const rawPage = await manager.newPage();
         const page = new PuppeteerPage(rawPage);
+        const start = Date.now();
 
         await page.goto(url);
         await page.wait(parseInt(opts.wait) || 2);
 
         let output: string;
-        const dump = opts.dump as string;
 
         switch (dump) {
           case 'markdown': case 'md':
@@ -105,11 +136,11 @@ export function createCLI(): Command {
             output = await page.markdown();
         }
 
-        // Also show browser state header
+        const elapsed = Date.now() - start;
         const state = await page.browserState();
         console.log(`URL: ${state.url}`);
         console.log(`Title: ${state.title}`);
-        console.log(`Page: ${state.pageWidth}x${state.pageHeight}px`);
+        console.log(`Engine: chrome (${elapsed}ms) | Page: ${state.pageWidth}x${state.pageHeight}px`);
         console.log(`---`);
         console.log(output);
 
@@ -219,8 +250,22 @@ export function createCLI(): Command {
       console.log(`  Browser Path: ${config.browser.executablePath || 'auto-detect'}`);
       console.log(`  CDP Endpoint: ${config.browser.cdpEndpoint || 'none'}`);
 
-      // Check browser
-      console.log('\nBrowser:');
+      // Check Lightpanda
+      console.log('\nLightpanda (fast, no Chrome):');
+      try {
+        const { isLightpandaAvailable, findLightpanda, getInstallInstructions } = await import('./browser/lightpanda.js');
+        if (isLightpandaAvailable()) {
+          console.log(`  Lightpanda: INSTALLED (${findLightpanda()})`);
+        } else {
+          console.log(`  Lightpanda: NOT INSTALLED`);
+          console.log(`  Install: ${getInstallInstructions()}`);
+        }
+      } catch (err) {
+        console.log(`  Lightpanda: check failed (${err})`);
+      }
+
+      // Check Chrome
+      console.log('\nChrome (full browser):');
       try {
         const { BrowserManager } = await import('./browser/manager.js');
         const manager = new BrowserManager({
