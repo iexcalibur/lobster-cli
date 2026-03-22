@@ -1,47 +1,111 @@
-# LobsterCLI
+<p align="center">
+  <img src="logo.svg" width="80" height="80" alt="LobsterCLI Logo" />
+</p>
 
-One CLI for all web automation. Fetch pages, run pipelines, explore APIs, and let AI agents navigate sites — all from a single command.
+<h1 align="center">LobsterCLI</h1>
 
-```bash
-lobster fetch https://example.com              # no AI, no Chrome, instant
-lobster run https://news.ycombinator.com       # smart routing, auto-detect best approach
-lobster agent "find pricing on example.com"    # AI figures it out autonomously
-lobster explore https://reddit.com             # discover hidden APIs, generate adapters
+<p align="center">
+  Web automation engine — CLI, Chrome extension, and importable library.<br/>
+  Fetch pages, run pipelines, explore APIs, and let AI agents navigate sites.
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/node-%3E%3D20-black?style=flat-square" />
+  <img src="https://img.shields.io/badge/license-MIT-black?style=flat-square" />
+  <img src="https://img.shields.io/badge/AI-optional-c9a84c?style=flat-square" />
+</p>
+
+---
+
+## What is LobsterCLI
+
+LobsterCLI is a web automation engine that works in three ways:
+
+| Product | What it is | Install |
+|---------|-----------|---------|
+| **CLI** | Terminal tool — fetch, scrape, explore, automate | `npm install -g lobster-cli` |
+| **Chrome Extension** | Side panel chat UI — analyze any page you're browsing | Load `extension/` folder in Chrome |
+| **Library** | Import into your own Node.js project | `import { ... } from 'lobster-cli'` |
+
+All three share the same core engine — same Brain, same DOM extraction, same LLM client, same agent loop.
+
+---
+
+## When AI is needed vs when it's free
+
+This is the most important thing to understand:
+
+### CLI — What's free, what needs AI
+
+| Command | AI needed? | What it does |
+|---------|-----------|-------------|
+| `lobster fetch <url>` | **No** | Fetch page, extract as markdown/text/snapshot/HTML. Uses in-house parser, no Chrome needed. |
+| `lobster fetch <url> -e chrome` | **No** | Same but with full Chrome for JS-heavy pages. |
+| `lobster explore <url>` | **No** | Discover APIs, intercept network calls, detect frameworks, generate adapters. |
+| `lobster run <url>` | **No** | Run pre-built site adapters and YAML pipelines. |
+| `lobster list` | **No** | List all registered adapters. |
+| `lobster config` | **No** | View/edit settings. |
+| `lobster doctor` | **No** | Diagnose setup, check Chrome, verify API key. |
+| `lobster setup` | **No** | Interactive setup wizard (AI provider selection is optional). |
+| `lobster plugin install` | **No** | Install community adapters from GitHub. |
+| `lobster agent "task"` | **Yes** | AI agent that reads pages, reasons, clicks, types, and navigates autonomously. |
+
+**80% of CLI features work without any API key.**
+
+### Chrome Extension — What's free, what needs AI
+
+| Action | AI needed? | What it does |
+|--------|-----------|-------------|
+| Click **"Summarize this page"** | **No** | Extracts headings, word count, content preview, page type, framework detection. |
+| Click **"Extract as Markdown"** | **No** | Converts full page DOM to clean Markdown. Copy to clipboard. |
+| Click **"Detect all forms"** | **No** | Scans all form fields — labels, types, values, required/disabled state. |
+| Click **"Show key links"** | **No** | Extracts all meaningful links from the page. |
+| Click **"Monitor API calls"** | **No** | Intercepts fetch/XHR, shows live API calls with method/URL/status. |
+| Click **"DOM snapshot"** | **No** | 12-stage pruned DOM snapshot, LLM-optimized. |
+| Type any question | **Yes** | Brain classifies intent, gathers right data, sends to LLM for answer. |
+| Click **"What's on screen?"** | **Yes** | Captures screenshot + sends to vision model for visual analysis. |
+
+**The 6 built-in chips work without AI. Typed questions need an API key.**
+
+### What the Brain does (smart intent classification)
+
+When you type a question, the Brain decides what data to gather before answering:
+
+```
+"summarize this page"              → Brain: { screenshot: false, markdown: true }
+                                     Cost: ~$0.001 (text only)
+
+"what is this email about"         → Brain: { screenshot: false, markdown: true }
+                                     Cost: ~$0.001 (text only)
+
+"what images are on this page"     → Brain: { screenshot: true, markdown: true }
+                                     Cost: ~$0.01 (screenshot + text)
+
+"what does the layout look like"   → Brain: { screenshot: true, markdown: false }
+                                     Cost: ~$0.01 (screenshot only)
+
+"what forms are on this page"      → Brain: { screenshot: false, forms: true }
+                                     Cost: ~$0.001 (form extraction + text)
 ```
 
-## Why LobsterCLI
+The Brain saves money by **not** taking screenshots when they aren't needed. Most questions only need text.
 
-Most tools do one thing. Puppeteer gives you browser control. LangChain gives you AI chains. Scrapy gives you crawling. You wire them together yourself, pick the right one for each job, and maintain the glue.
+### Library — Same rules apply
 
-LobsterCLI merges all three approaches into one tool with a smart router that picks the best strategy automatically:
-
-```
-Your query
-    |
-    ├── Known site?        → Adapter (pre-built, instant, $0)
-    ├── Simple page?       → LobsterEngine (in-house parser, no Chrome, $0)
-    ├── JS-heavy page?     → Chrome via Puppeteer (full rendering, $0)
-    └── Complex task?      → AI Agent (LLM-powered, autonomous, ~$0.01-0.05)
+```typescript
+import { classifyIntent } from 'lobster-cli/brain'  // No AI needed for heuristic mode
+import { PuppeteerPage } from 'lobster-cli/page'     // No AI needed
+import { MARKDOWN_SCRIPT } from 'lobster-cli/dom'     // No AI needed
+import { exploreSite } from 'lobster-cli/discover'    // No AI needed
+import { AgentCore } from 'lobster-cli/agent'         // Needs AI
+import { LLM } from 'lobster-cli/llm'                 // Needs AI
 ```
 
-**You don't choose the strategy. The CLI does.**
-
-### What makes it different
-
-| Feature | Puppeteer | Playwright | Scrapy | LobsterCLI |
-|---------|-----------|------------|--------|------------|
-| Headless browsing | Yes | Yes | No | Yes |
-| No-browser fast fetch | No | No | Yes | Yes (built-in engine) |
-| AI agent mode | No | No | No | Yes |
-| Site adapters (YAML) | No | No | No | Yes |
-| Pipeline engine | No | No | Partial | Yes (17 steps) |
-| Auto API discovery | No | No | No | Yes |
-| Smart routing | No | No | No | Yes |
-| Multi-provider LLM | No | No | No | Yes (OpenAI, Anthropic, Gemini, Ollama) |
-| Plugin ecosystem | No | No | Yes | Yes |
-| Works without AI key | N/A | N/A | N/A | Yes — most features are free |
+---
 
 ## Install
+
+### CLI
 
 ```bash
 # Install globally
@@ -55,95 +119,83 @@ npm run build
 npm link
 ```
 
-**Requirements:**
-- Node.js 20+
-- Chrome/Chromium (only for browser features — `fetch` command works without it)
+Requires Node.js 20+. Chrome/Chromium needed only for browser features.
 
-### First-time setup
+### Chrome Extension
+
+1. Clone this repo
+2. Open `chrome://extensions/`
+3. Enable **Developer mode** (top right)
+4. Click **Load unpacked** → select the `extension/` folder
+5. Click the LobsterCLI icon → opens as a side panel
+
+### Library (in your own project)
+
+```bash
+npm install lobster-cli
+```
+
+```typescript
+import { classifyIntent, heuristicClassify } from 'lobster-cli/brain'
+import { PuppeteerPage, BrowserManager } from 'lobster-cli/browser'
+import { SNAPSHOT_SCRIPT, MARKDOWN_SCRIPT } from 'lobster-cli/dom'
+import { AgentCore } from 'lobster-cli/agent'
+import { exploreSite } from 'lobster-cli/discover'
+import { executePipeline } from 'lobster-cli/pipeline'
+import { LLM } from 'lobster-cli/llm'
+```
+
+---
+
+## AI Setup (optional)
+
+AI is only needed for `lobster agent` and typed chat questions in the extension.
 
 ```bash
 lobster setup
 ```
 
-Interactive wizard that walks you through:
-1. Pick an AI provider (or skip — most features work without one)
-2. Enter API key
-3. Choose model
-4. Validates with a test call
+| Provider | Default Model | Cost | Best for |
+|----------|--------------|------|----------|
+| **Google Gemini** | gemini-2.5-flash | **Free tier** | Most users — free, fast, vision support |
+| **OpenAI** | gpt-4o | Pay per token | Best reasoning |
+| **Anthropic** | claude-sonnet-4 | Pay per token | Best for code analysis |
+| **Ollama** | llama3.1 | **Free (local)** | Privacy, offline use |
 
-```
-  Available providers:
-
-    1. OpenAI
-    2. Anthropic
-    3. Google Gemini
-    4. Ollama (free, runs locally)
-    5. Skip — I'll set it up later
-```
-
-**AI is optional.** These commands work with zero configuration:
-- `lobster fetch` — fetch and extract content
-- `lobster run` — run site adapters and pipelines
-- `lobster explore` — discover site APIs
-- `lobster list` — list available adapters
-
-Only `lobster agent` needs an LLM API key.
-
-### Alternative setup (no wizard)
+Or set manually:
 
 ```bash
-# One-liner
 lobster config set llm.provider gemini
 lobster config set llm.apiKey AIza...
-lobster config set llm.model gemini-2.0-flash
-
-# Or environment variable
-export LOBSTER_API_KEY=sk-your-key-here
-export LOBSTER_MODEL=gpt-4o
+lobster config set llm.model gemini-2.5-flash
 ```
 
-### Verify installation
+---
+
+## CLI Commands
+
+### `lobster fetch <url>` — Extract content (no AI)
 
 ```bash
-lobster doctor
+lobster fetch https://example.com                  # markdown output
+lobster fetch https://example.com -d snapshot      # LLM-optimized DOM
+lobster fetch https://example.com -d text          # plain text
+lobster fetch https://example.com -d semantic      # W3C accessible tree
+lobster fetch https://example.com -d html          # raw HTML
+lobster fetch https://example.com -e chrome -w 5   # force Chrome, wait 5s
 ```
 
-Shows provider, model, API key status, Chrome detection, registered adapters, and installed plugins.
+Engines: `auto` (default), `fast` (in-house parser, no Chrome), `chrome` (full browser).
 
-## Commands
-
-### `lobster fetch <url>` — Extract content from any page
-
-No Chrome, no AI. Uses the built-in LobsterEngine (in-house HTML parser) for speed. Falls back to Chrome only if the page needs JavaScript.
+### `lobster run <url>` — Smart router (no AI)
 
 ```bash
-lobster fetch https://example.com                       # markdown output
-lobster fetch https://example.com -d snapshot           # LLM-optimized DOM snapshot
-lobster fetch https://example.com -d text               # plain text
-lobster fetch https://example.com -d semantic            # W3C accessible tree
-lobster fetch https://example.com -d html               # raw HTML
-lobster fetch https://example.com -e chrome -w 5        # force Chrome, wait 5s
+lobster run https://api.github.com/users/octocat   # direct HTTP fetch
+lobster run https://news.ycombinator.com            # adapter if registered
+lobster run https://example.com -f yaml             # output as YAML
 ```
 
-**Engines:**
-- `auto` (default) — tries fast engine first, falls back to Chrome if JS is needed
-- `fast` — in-house parser only, no Chrome
-- `chrome` — full Puppeteer browser
-
-### `lobster run <url>` — Smart router
-
-Auto-detects the best approach for a URL. If an adapter exists for the site, uses it. Otherwise escalates through the engine chain.
-
-```bash
-lobster run https://api.github.com/users/octocat        # direct HTTP (public API)
-lobster run https://news.ycombinator.com                 # adapter if registered
-lobster run https://example.com -t "get all links"       # with task description
-lobster run https://example.com -f yaml                  # output as YAML
-```
-
-### `lobster agent <task>` — AI-powered automation
-
-Give it a task in plain English. The agent observes the DOM, reasons about what to do, and acts — clicking, typing, scrolling, and extracting data autonomously.
+### `lobster agent <task>` — AI agent (needs API key)
 
 ```bash
 lobster agent "search for TypeScript on Hacker News" --url https://news.ycombinator.com
@@ -151,287 +203,172 @@ lobster agent "find the cheapest flight to Tokyo" --url https://google.com/fligh
 lobster agent "log in and check my notifications" --url https://github.com
 ```
 
-**How it works:**
-1. Takes a DOM snapshot (12-stage pruned, LLM-optimized)
-2. Sends to LLM with tool definitions
-3. LLM decides: click, type, scroll, wait, or done
-4. Executes the action with full browser event simulation
-5. Repeats until task is complete (max 40 steps)
+The agent observes the DOM → sends to LLM → decides what to click/type/scroll → repeats until done (max 40 steps).
 
-**Agent tools:** click, type, scroll, select dropdown, wait, execute JS, ask user, done.
-
-### `lobster explore <url>` — Discover site APIs
-
-Navigates to a site, intercepts all network requests, clicks around to trigger hidden APIs, and outputs a full analysis.
+### `lobster explore <url>` — Discover APIs (no AI)
 
 ```bash
 lobster explore https://reddit.com
 lobster explore https://twitter.com -w 5
 ```
 
-**What it does:**
-- Installs network interceptors (fetch + XHR patching)
-- Smart auto-scrolls with MutationObserver (detects lazy-loaded content)
-- Clicks buttons/tabs to trigger hidden API calls (interactive fuzzing)
-- Scores and ranks discovered endpoints
-- Detects framework (React, Vue, Next.js, Nuxt, Angular, Svelte)
-- Discovers Vue stores (Pinia/Vuex) and their actions
-- Infers auth strategy (public, cookie, header, intercept)
-- Writes artifacts to `.lobster/explore/<site>/`:
-  - `manifest.json` — site metadata
-  - `endpoints.json` — all discovered endpoints with scores
-  - `capabilities.json` — inferred CLI commands
-  - `auth.json` — auth indicators
-  - `stores.json` — Vue/React store details
-- Auto-generates a YAML adapter you can use immediately
+Intercepts network calls, clicks around to find hidden APIs, detects frameworks, scores endpoints, and generates adapter files.
 
-### `lobster list` — Show available adapters
+### `lobster config` — Settings
 
 ```bash
-lobster list
-lobster list -f json
+lobster config show
+lobster config set llm.provider anthropic
+lobster config set browser.headless false
 ```
 
-### `lobster config` — Manage settings
-
-```bash
-lobster config show                              # show all settings (key masked)
-lobster config set llm.provider anthropic        # switch provider
-lobster config set llm.model claude-sonnet-4-20250514
-lobster config set llm.apiKey sk-ant-...
-lobster config set browser.headless false        # show browser window
-lobster config set output.defaultFormat yaml     # default output format
-```
-
-Config is stored at `~/.lobster/config.yaml`.
-
-### `lobster plugin` — Extend with community adapters
+### `lobster plugin` — Community adapters
 
 ```bash
 lobster plugin install github-user/reddit-adapter
 lobster plugin list
-lobster plugin uninstall reddit-adapter
 ```
 
-## Supported AI Providers
+---
 
-| Provider | Models | Cost | Setup |
-|----------|--------|------|-------|
-| **OpenAI** | gpt-4o, gpt-4o-mini, o1, o3-mini | Pay per token | `lobster setup` → choose OpenAI |
-| **Anthropic** | claude-opus-4, claude-sonnet-4, claude-haiku-4.5 | Pay per token | `lobster setup` → choose Anthropic |
-| **Google Gemini** | gemini-2.0-flash, gemini-1.5-pro, gemini-1.5-flash | Free tier available | `lobster setup` → choose Gemini |
-| **Ollama** | llama3.1, mistral, deepseek-r1, codestral | Free (local) | Install [Ollama](https://ollama.ai), then `lobster setup` |
+## Chrome Extension
 
-All providers work through a unified client. Anthropic uses its native Messages API (auto-converted). OpenAI, Gemini, and Ollama use the OpenAI-compatible chat completions format.
+The extension is a chat-style side panel (like Gemini or Claude) docked to the right of your browser.
+
+### Free features (no API key)
+
+Click any of the 6 built-in chips:
+
+- **Summarize this page** — page type, headings, word count, framework, content preview
+- **Extract as Markdown** — full DOM-to-Markdown with copy button
+- **Detect all forms** — every form field with label, type, value, required state
+- **Show key links** — all meaningful links on the page
+- **Monitor API calls** — live fetch/XHR interception
+- **DOM snapshot** — 12-stage pruned snapshot
+
+### AI features (needs API key)
+
+Type any question in the chat:
+
+- "What is this email about?" — reads page text, gives natural language answer
+- "What images are on this page?" — captures screenshot, uses vision model
+- "Draft a reply to this email" — reads content, writes a response
+- "What color is the header?" — captures screenshot, analyzes visually
+
+The **Brain** automatically decides whether to capture a screenshot or just read text, so you don't pay for vision when you don't need it.
+
+### Setup AI in extension
+
+Click the gear icon → Settings → pick provider → enter key → Save.
+
+---
+
+## Use as a library
+
+LobsterCLI exports every module for use in your own projects:
+
+```typescript
+// Brain — intent classification
+import { classifyIntent, heuristicClassify } from 'lobster-cli/brain'
+
+// Browser — page control
+import { BrowserManager, PuppeteerPage } from 'lobster-cli/browser'
+
+// DOM scripts — run in any browser context
+import { SNAPSHOT_SCRIPT, MARKDOWN_SCRIPT, FORM_STATE_SCRIPT } from 'lobster-cli/dom'
+
+// Agent — autonomous web navigation
+import { AgentCore } from 'lobster-cli/agent'
+
+// LLM — multi-provider client
+import { LLM } from 'lobster-cli/llm'
+
+// Pipeline — declarative YAML execution
+import { executePipeline } from 'lobster-cli/pipeline'
+
+// Discovery — find site APIs
+import { exploreSite } from 'lobster-cli/discover'
+
+// Config — load/save settings
+import { loadConfig, saveConfig } from 'lobster-cli/config'
+```
+
+### Example: build a search agent
+
+```typescript
+import { BrowserManager } from 'lobster-cli/browser'
+import { AgentCore } from 'lobster-cli/agent'
+import { LLM } from 'lobster-cli/llm'
+import { classifyIntent } from 'lobster-cli/brain'
+
+async function search(query) {
+  // Brain decides what data is needed
+  const intent = await classifyIntent(query, 'Google Search')
+
+  // Launch browser
+  const browser = new BrowserManager({ headless: true })
+  const page = await browser.launch('https://google.com')
+
+  // Run agent
+  const agent = new AgentCore({ page, llm: new LLM(config), maxSteps: 20 })
+  const result = await agent.execute(query)
+
+  await page.close()
+  return result
+}
+```
+
+---
 
 ## Architecture
 
 ```
-src/
-  cli.ts              → Command definitions (commander)
-  setup.ts            → Interactive setup wizard
-  index.ts            → Entry point
-
-  config/             → Config loading, schema, defaults (~/.lobster/config.yaml)
-  types/              → Shared TypeScript interfaces (IPage, LLMConfig, etc.)
-
-  router/             → Smart Router — picks best approach per query
-    decision.ts       → Routing logic (adapter → engine → agent)
-
-  browser/            → Browser abstraction layer
-    page-adapter.ts   → PuppeteerPage implements IPage
-    manager.ts        → Chrome lifecycle (launch, connect, close)
-    lightpanda.ts     → LobsterEngine — in-house HTML parser (no Chrome)
-    wait.ts           → Wait conditions (text, time, network idle)
-    interceptor.ts    → Network request interception (fetch + XHR)
-    dom/              → 6 DOM extraction strategies
-      flat-tree.ts    → Indexed interactive elements for AI agent
-      snapshot.ts     → 12-stage pruned snapshot with diff marking
-      semantic-tree.ts→ W3C accessible names + XPath
-      markdown.ts     → Full DOM-to-Markdown (tables, lists, links)
-      interactive.ts  → Interactive element classification
-      form-state.ts   → Form field extraction (labels, values, state)
-
-  pipeline/           → Declarative YAML pipeline engine
-    executor.ts       → Step-by-step execution with context passing
-    template.ts       → Template expressions (${{ }}) with 16 filters
-    registry.ts       → Step registration
-    steps/
-      fetch.ts        → HTTP requests with batch IPC
-      browser.ts      → navigate, click, type, wait, press, snapshot, evaluate
-      transform.ts    → select (JSONPath), map, filter, sort, limit
-      intercept.ts    → Network interception + trigger actions
-      download.ts     → HTTP + yt-dlp + document extraction
-      tap.ts          → Vue store action bridge (Pinia/Vuex)
-
-  adapter/            → Site adapter system
-    registry.ts       → Global adapter registry
-    loader.ts         → Load TS adapters
-    yaml-loader.ts    → Load YAML adapters
-    commander-bridge.ts → Bridge adapters to CLI subcommands
-
-  agent/              → AI agent (observe-think-act loop)
-    core.ts           → Agent loop with reflection and history
-    macro-tool.ts     → Pack all tools into single LLM tool
-    auto-fixer.ts     → Fix malformed LLM responses (7 strategies)
-    prompts/system.md → System prompt
-    tools/            → 8 agent tools (click, type, scroll, etc.)
-
-  llm/                → Multi-provider LLM client
-    openai-client.ts  → Unified client (OpenAI, Anthropic, Gemini, Ollama)
-    client.ts         → High-level LLM with retry + macro tool
-    errors.ts         → Typed errors (auth, rate limit, network, etc.)
-    utils.ts          → Zod → OpenAI tool schema conversion
-
-  discover/           → Site exploration and adapter generation
-    explore.ts        → API discovery (smart scroll, fuzzing, artifacts)
-    synthesize.ts     → Auto-generate YAML adapter from explore results
-
-  cascade/            → Auth strategy cascade (PUBLIC → COOKIE → HEADER → INTERCEPT)
-  http/               → Direct HTTP fetch (Level 0)
-  output/             → Output formatters (table, json, yaml, csv, markdown)
-  plugin/             → Plugin install/uninstall from GitHub
-  utils/              → Logger, timeout helpers
+lobster-cli/
+├── src/
+│   ├── brain/          → Intent classifier (LLM + heuristic fallback)
+│   ├── browser/        → IPage interface, Puppeteer adapter, DOM scripts
+│   │   └── dom/        → 6 extraction strategies (snapshot, markdown, semantic, etc.)
+│   ├── agent/          → Observe-think-act loop, 8 tools, auto-fixer
+│   ├── llm/            → Multi-provider client (OpenAI, Anthropic, Gemini, Ollama)
+│   ├── pipeline/       → YAML pipeline engine, 17 steps, template expressions
+│   ├── adapter/        → Site adapter registry, YAML/TS loaders
+│   ├── router/         → Smart routing (HTTP → Engine → Adapter → Agent)
+│   ├── discover/       → API discovery, endpoint scoring, adapter generation
+│   ├── cascade/        → Auth strategy detection (public → cookie → header → intercept)
+│   ├── config/         → Settings (~/.lobster/config.yaml)
+│   ├── output/         → Formatters (table, JSON, YAML, CSV, Markdown)
+│   ├── plugin/         → GitHub plugin install/uninstall
+│   ├── lib.ts          → Library exports (for npm import)
+│   ├── cli.ts          → CLI commands (commander)
+│   └── index.ts        → CLI entry point
+│
+├── extension/          → Chrome extension (side panel)
+│   ├── sidepanel/      → Chat UI (HTML/CSS/JS)
+│   ├── background/     → Service worker (LLM calls, screenshot capture)
+│   ├── shared/         → DOM scripts (same code as CLI, ported to browser JS)
+│   ├── options/        → Settings page
+│   └── manifest.json   → Chrome extension manifest (v3, side panel API)
+│
+├── logo.svg            → Logo (SVG)
+├── logo.png            → Logo (512px PNG)
+└── package.json        → Dual: CLI binary + library exports
 ```
 
-## Key Concepts
-
-### IPage Interface
-
-Every browser interaction goes through `IPage` — a unified abstraction over Puppeteer (and potentially other backends). This means the agent, pipelines, and adapters all use the same API:
-
-```typescript
-interface IPage {
-  goto(url): Promise<void>
-  snapshot(): Promise<string>          // LLM-optimized DOM
-  semanticTree(): Promise<string>      // W3C accessible tree
-  markdown(): Promise<string>          // content as markdown
-  formState(): Promise<FormState>      // all form fields
-  click(ref): Promise<void>            // full event sequence
-  typeText(ref, text): Promise<void>   // React/Vue compatible
-  scroll(direction): Promise<void>     // nested container aware
-  networkRequests(): Promise<NetworkEntry[]>
-  // ... 20+ methods
-}
-```
-
-### Smart Router Escalation
-
-```
-Level 0: Direct HTTP     → Public APIs, JSON endpoints ($0, ~200ms)
-Level 1: LobsterEngine   → Static HTML pages, no JS ($0, ~300ms)
-Level 2: Chrome/Puppeteer → JS-rendered SPAs ($0, ~2-5s)
-Level 3: Site Adapters    → Known sites with pipelines ($0, ~1-3s)
-Level 4: AI Agent         → Unknown sites, complex tasks (~$0.01-0.05, ~10-30s)
-```
-
-### Pipeline System
-
-Declarative YAML pipelines with 17 registered steps:
-
-```yaml
-name: hackernews-top
-site: hackernews
-steps:
-  - navigate: https://news.ycombinator.com
-  - snapshot: true
-  - evaluate: |
-      [...document.querySelectorAll('.titleline > a')].map(a => ({
-        title: a.textContent, url: a.href
-      }))
-  - limit: ${{ args.limit | default(10) }}
-```
-
-### Template Expressions
-
-16 built-in filters:
-
-```
-${{ args.query | urlencode }}
-${{ item.title | truncate(50) }}
-${{ data.items | json }}
-${{ args.date | default("today") }}
-${{ item.path | ext }}
-${{ item.path | basename }}
-${{ item.html | sanitize }}
-```
-
-### Strategy Cascade
-
-Auto-detects the right auth approach for a site:
-
-1. **PUBLIC** — no auth, direct fetch works
-2. **COOKIE** — needs browser cookies (session-based)
-3. **HEADER** — needs Bearer token or CSRF token
-4. **INTERCEPT** — needs to intercept signed/dynamic requests
-
-### Snapshot Diff Marking
-
-Between agent steps, new DOM elements are marked with `*`:
-
-```
-[0] <button> Search
-[1] <input> text field
-*[2] <div> New result that appeared after clicking Search
-*[3] <a> Another new element
-```
-
-The agent sees exactly what changed — no need to diff the entire DOM.
-
-## Writing Adapters
-
-### TypeScript adapter
-
-```typescript
-// adapters/mysite/search.ts
-export default {
-  name: 'search',
-  site: 'mysite',
-  description: 'Search mysite',
-  args: [{ name: 'query', required: true }],
-  strategy: 'public',
-  browser: false,
-  async execute(args, ctx) {
-    const resp = await fetch(`https://api.mysite.com/search?q=${args.query}`);
-    return resp.json();
-  },
-};
-```
-
-### YAML adapter (pipeline)
-
-```yaml
-name: search
-site: mysite
-description: Search mysite
-args:
-  - name: query
-    required: true
-strategy: public
-browser: true
-steps:
-  - navigate: https://mysite.com
-  - type:
-      ref: '[name="search"]'
-      text: ${{ args.query }}
-      submit: true
-  - wait: { time: 2 }
-  - snapshot: true
-```
+---
 
 ## Environment Variables
 
 | Variable | Purpose |
 |----------|---------|
-| `LOBSTER_API_KEY` | LLM API key (overrides config file) |
+| `LOBSTER_API_KEY` | LLM API key (overrides config) |
 | `LOBSTER_MODEL` | LLM model name |
 | `LOBSTER_BASE_URL` | LLM API base URL |
 | `LOBSTER_CDP_ENDPOINT` | Chrome DevTools Protocol endpoint |
 | `LOBSTER_BROWSER_PATH` | Path to Chrome/Chromium binary |
 
-## Dependencies
+---
 
-LobsterCLI keeps dependencies minimal:
+## Dependencies
 
 | Package | Purpose |
 |---------|---------|
@@ -441,9 +378,11 @@ LobsterCLI keeps dependencies minimal:
 | `chalk` | Terminal colors |
 | `cli-table3` | Table formatting |
 | `js-yaml` | YAML parsing |
-| `ws` | WebSocket client |
+| `ws` | WebSocket |
 
-No AI SDK dependency. LLM calls use native `fetch()` with our own protocol adapters.
+No AI SDK. LLM calls use native `fetch()` with our own protocol adapters.
+
+---
 
 ## License
 
