@@ -26,17 +26,34 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Get current tab and update context
   await refreshCurrentTab();
 
-  // Listen for tab switches (critical for side panel — it stays open)
+  // Listen for tab switches
   chrome.tabs.onActivated.addListener(async () => {
     await refreshCurrentTab();
   });
 
-  // Listen for tab URL changes (navigation within same tab)
+  // Listen for tab URL changes (full navigation)
   chrome.tabs.onUpdated.addListener(async (tabId, changeInfo) => {
-    if (changeInfo.status === 'complete' && currentTab && tabId === currentTab.id) {
-      await refreshCurrentTab();
+    if (currentTab && tabId === currentTab.id) {
+      // Catch both full page loads AND in-page URL changes (SPA, pushState, hash)
+      if (changeInfo.status === 'complete' || changeInfo.url) {
+        await refreshCurrentTab();
+      }
     }
   });
+
+  // Poll for in-page changes that Chrome doesn't fire events for
+  // (e.g., Gmail tab switches, SPA route changes via history.replaceState)
+  setInterval(async () => {
+    if (!currentTab?.id || !pageAccessible) return;
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+      if (tab && tab.url !== lastKnownUrl) {
+        lastKnownUrl = tab.url;
+        currentTab = tab;
+        document.getElementById('context-text').textContent = tab.title || tab.url;
+      }
+    } catch {}
+  }, 2000);
 
   // Listen for storage changes (user saves API key in settings)
   chrome.storage.onChanged.addListener((changes) => {
@@ -46,10 +63,13 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 });
 
+let lastKnownUrl = '';
+
 async function refreshCurrentTab() {
   try {
     const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
     currentTab = tab;
+    lastKnownUrl = tab?.url || '';
 
     const isRestricted = !tab?.url ||
       tab.url.startsWith('chrome://') ||
