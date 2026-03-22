@@ -23,7 +23,19 @@ export type { LLMConfig, Message, ToolCall, LLMTool, InvokeResult } from './type
 // ── Browser — Page interface + Puppeteer adapter ──
 export { BrowserManager } from './browser/manager.js';
 export { PuppeteerPage } from './browser/page-adapter.js';
-export type { IPage, BrowserState, Cookie, NetworkEntry, DomNode, FlatDomTree, FormState, FormField, FormInfo } from './types/page.js';
+export type { IPage, BrowserState, Cookie, NetworkEntry, DomNode, FlatDomTree, FormState, FormField, FormInfo, FindMatch, FindOptions } from './types/page.js';
+
+// ── Profiles — Persistent Chrome sessions ──
+export { createProfile, listProfiles, removeProfile, getProfileDataDir, resetProfileCache } from './browser/profiles.js';
+
+// ── Chrome Attach — Connect to running Chrome ──
+export { discoverChrome, resolveAttachTarget } from './browser/chrome-attach.js';
+
+// ── Stealth — Anti-bot detection ──
+export { STEALTH_SCRIPT, injectStealth, STEALTH_ARGS } from './browser/stealth.js';
+
+// ── Semantic Find — Natural language element matching ──
+export { semanticFind } from './browser/semantic-find.js';
 
 // ── DOM Scripts — Run inside any browser context ──
 export {
@@ -35,6 +47,8 @@ export {
   flatTreeToString,
   INTERACTIVE_ELEMENTS_SCRIPT,
   FORM_STATE_SCRIPT,
+  COMPACT_SNAPSHOT_SCRIPT,
+  buildCompactSnapshotScript,
 } from './browser/dom/index.js';
 
 // ── In-house HTML Parser — No Chrome needed ──

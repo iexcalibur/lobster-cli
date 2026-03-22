@@ -2,13 +2,17 @@ import type { Page } from 'puppeteer-core';
 import type {
   IPage, WaitCondition, Cookie, NetworkEntry, TabInfo,
   SnapshotOptions, SemanticTreeOptions, FlatDomTree, BrowserState, FormState,
+  FindMatch, FindOptions,
 } from '../types/page.js';
 import { FLAT_TREE_SCRIPT, flatTreeToString } from './dom/flat-tree.js';
 import { SNAPSHOT_SCRIPT } from './dom/snapshot.js';
+import { COMPACT_SNAPSHOT_SCRIPT } from './dom/compact-snapshot.js';
 import { SEMANTIC_TREE_SCRIPT } from './dom/semantic-tree.js';
 import { MARKDOWN_SCRIPT } from './dom/markdown.js';
 import { FORM_STATE_SCRIPT } from './dom/form-state.js';
+import { INTERACTIVE_ELEMENTS_SCRIPT } from './dom/interactive.js';
 import { buildInterceptorScript, GET_INTERCEPTED_SCRIPT } from './interceptor.js';
+import { semanticFind } from './semantic-find.js';
 
 export class PuppeteerPage implements IPage {
   private page: Page;
@@ -42,7 +46,10 @@ export class PuppeteerPage implements IPage {
     return this.page.evaluate(js) as Promise<T>;
   }
 
-  async snapshot(_opts?: SnapshotOptions): Promise<string> {
+  async snapshot(opts?: SnapshotOptions): Promise<string> {
+    if (opts?.compact) {
+      return this.page.evaluate(COMPACT_SNAPSHOT_SCRIPT) as Promise<string>;
+    }
     return this.page.evaluate(SNAPSHOT_SCRIPT) as Promise<string>;
   }
 
@@ -374,6 +381,11 @@ export class PuppeteerPage implements IPage {
       title: '',
       active: p === this.page,
     }));
+  }
+
+  async find(query: string, options?: FindOptions): Promise<FindMatch[]> {
+    const elements = await this.page.evaluate(INTERACTIVE_ELEMENTS_SCRIPT) as any[];
+    return semanticFind(elements, query, options);
   }
 
   async close(): Promise<void> {

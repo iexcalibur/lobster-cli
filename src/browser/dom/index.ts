@@ -4,3 +4,4 @@ export { SEMANTIC_TREE_SCRIPT } from './semantic-tree.js';
 export { MARKDOWN_SCRIPT } from './markdown.js';
 export { INTERACTIVE_ELEMENTS_SCRIPT } from './interactive.js';
 export { FORM_STATE_SCRIPT } from './form-state.js';
+export { COMPACT_SNAPSHOT_SCRIPT, buildCompactSnapshotScript } from './compact-snapshot.js';

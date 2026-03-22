@@ -96,6 +96,19 @@ export interface FormState {
   orphanFields: FormField[];
 }
 
+export interface FindMatch {
+  ref: number;
+  score: number;
+  text: string;
+  role: string;
+  tag: string;
+}
+
+export interface FindOptions {
+  maxResults?: number;
+  minScore?: number;
+}
+
 export interface IPage {
   goto(url: string, options?: { waitUntil?: WaitCondition; timeout?: number }): Promise<void>;
   goBack(): Promise<void>;
@@ -120,6 +133,7 @@ export interface IPage {
   installInterceptor(pattern: string): Promise<void>;
   getInterceptedRequests(): Promise<unknown[]>;
   screenshot(opts?: { format?: 'png' | 'jpeg'; fullPage?: boolean }): Promise<Buffer>;
+  find(query: string, options?: FindOptions): Promise<FindMatch[]>;
   tabs(): Promise<TabInfo[]>;
   close(): Promise<void>;
 }

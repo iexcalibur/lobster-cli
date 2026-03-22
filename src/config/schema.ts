@@ -52,6 +52,8 @@ export const configSchema = z.object({
     connectTimeout: z.number().default(30),
     commandTimeout: z.number().default(60),
     cdpEndpoint: z.string().default(''),
+    profile: z.string().default(''),
+    stealth: z.boolean().default(false),
   }).default({}),
   agent: z.object({
     maxSteps: z.number().int().default(40),
