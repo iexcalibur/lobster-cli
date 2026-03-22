@@ -23,7 +23,7 @@ export const LLM_PROVIDERS = {
     defaultModel: 'gemini-2.0-flash',
     keyPrefix: 'AI',
     keyEnvHint: 'https://aistudio.google.com/apikey',
-    models: ['gemini-2.0-flash', 'gemini-2.0-flash-lite', 'gemini-1.5-pro', 'gemini-1.5-flash'],
+    models: ['gemini-2.0-flash', 'gemini-2.0-flash-lite', 'gemini-2.5-flash-preview-05-20', 'gemini-2.5-pro-preview-05-06'],
   },
   ollama: {
     name: 'Ollama (local, free)',
