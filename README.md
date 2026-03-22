@@ -18,6 +18,25 @@
 
 ---
 
+## Why LobsterCLI
+
+Every web automation tool today does one thing. Puppeteer gives you browser control — but no intelligence. LangChain gives you AI chains — but no browser. Scrapy gives you crawling — but no JavaScript. You end up wiring 3-4 tools together, writing glue code, and deciding which tool to use for each task.
+
+LobsterCLI is a single engine that does all of it. It has a **Smart Router** that automatically picks the best approach for your task — from a simple HTTP fetch to a full AI agent — so you never have to choose.
+
+**What makes it unique:**
+
+- **One tool, not four.** Fetch, scrape, explore, and AI-navigate — all from `lobster`.
+- **AI is optional.** 80% of features work without any API key. The free tier covers most use cases.
+- **Smart Brain.** When you do use AI, the Brain classifies your intent and gathers only what's needed — no wasted tokens on screenshots when text is enough.
+- **Three interfaces, one engine.** CLI for developers, Chrome extension for everyone, npm library for builders. Same core, same results.
+- **Persistent sessions.** Login once with `--profile`, your cookies and auth survive forever. Attach to your running Chrome with `--attach` — use your real logged-in sessions.
+- **Stealth built-in.** Anti-bot detection out of the box. No separate puppeteer-stealth plugin, no extra config.
+- **Domain restrictions.** Build vertical products on top — a finance tool that only works on Bloomberg, a legal tool that only works on case databases. One config line.
+- **Actually works on modern sites.** Full React/Vue event simulation, shadow DOM, iframe extraction, dynamic content detection. Not just static HTML scraping.
+
+---
+
 ## What is LobsterCLI
 
 LobsterCLI is a web automation engine that works in three ways:
