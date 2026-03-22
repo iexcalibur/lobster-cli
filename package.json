@@ -6,9 +6,21 @@
   "bin": {
     "lobster": "./dist/index.js"
   },
+  "main": "./dist/lib.js",
   "exports": {
-    ".": "./dist/index.js",
-    "./registry": "./dist/adapter/registry.js"
+    ".": "./dist/lib.js",
+    "./brain": "./dist/brain/index.js",
+    "./llm": "./dist/llm/index.js",
+    "./page": "./dist/browser/page-adapter.js",
+    "./dom": "./dist/browser/dom/index.js",
+    "./pipeline": "./dist/pipeline/index.js",
+    "./agent": "./dist/agent/index.js",
+    "./router": "./dist/router/index.js",
+    "./discover": "./dist/discover/index.js",
+    "./config": "./dist/config/index.js",
+    "./output": "./dist/output/index.js",
+    "./cascade": "./dist/cascade/index.js",
+    "./browser": "./dist/browser/index.js"
   },
   "scripts": {
     "build": "tsup",
