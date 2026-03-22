@@ -8,13 +8,18 @@ let chatStarted = false;
 let interceptorActive = false;
 let pageAccessible = false;
 
-// ── Init ──
-document.addEventListener('DOMContentLoaded', async () => {
-  // Load AI config
+async function loadAiConfig() {
   const stored = await chrome.storage.local.get(['aiProvider', 'aiApiKey', 'aiModel', 'aiBaseURL']);
   if (stored.aiApiKey || stored.aiProvider === 'ollama') {
     aiConfig = stored;
+  } else {
+    aiConfig = null;
   }
+}
+
+// ── Init ──
+document.addEventListener('DOMContentLoaded', async () => {
+  await loadAiConfig();
 
   setupListeners();
 
@@ -30,6 +35,13 @@ document.addEventListener('DOMContentLoaded', async () => {
   chrome.tabs.onUpdated.addListener(async (tabId, changeInfo) => {
     if (changeInfo.status === 'complete' && currentTab && tabId === currentTab.id) {
       await refreshCurrentTab();
+    }
+  });
+
+  // Listen for storage changes (user saves API key in settings)
+  chrome.storage.onChanged.addListener((changes) => {
+    if (changes.aiApiKey || changes.aiProvider || changes.aiModel || changes.aiBaseURL) {
+      loadAiConfig();
     }
   });
 });
@@ -482,6 +494,9 @@ async function doNetwork() {
 }
 
 async function handleAIQuestion(question) {
+  // Always re-check config in case user just saved it
+  await loadAiConfig();
+
   if (!aiConfig) {
     addBotMessage(
       'AI features need an API key. Click the <b>gear icon</b> above to configure one.<br><br>' +
