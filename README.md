@@ -384,6 +384,68 @@ No AI SDK. LLM calls use native `fetch()` with our own protocol adapters.
 
 ---
 
+## Origin — Built from three projects
+
+LobsterCLI wasn't built from scratch. It was created by studying three open-source projects, extracting the best ideas from each, and combining them into one unified tool with all code written in-house.
+
+### The three source projects
+
+| Project | What it is | What we learned |
+|---------|-----------|----------------|
+| **Lightpanda** (browser-main) | Headless browser engine written in Zig. 11x faster than Chrome, no GUI. | How to build a fast HTML parser, DOM tree construction, semantic tree generation, markdown extraction |
+| **Page Agent** (page-agent-main) | AI agent that navigates websites autonomously using LLM reasoning. | Observe-think-act loop, full click/type event simulation, DOM snapshot for LLM, auto-fixer for malformed responses |
+| **OpenCLI** (opencli-main) | CLI tool with pre-built adapters for 30+ sites, pipeline engine, Chrome session reuse. | YAML pipeline system, site adapter pattern, strategy cascade, 12-stage DOM pruning, network interception, explore/discovery engine |
+
+### What we took from each
+
+**From Lightpanda:**
+- In-house HTML parser (LobsterEngine) — no Chrome needed for simple pages
+- Semantic tree with W3C accessible name algorithm
+- Markdown extraction with full table/list/link support
+- XPath generation for element location
+
+**From Page Agent:**
+- Agent loop: observe DOM → LLM reasons → act → repeat (max 40 steps)
+- Full click event sequence: mouseenter → mouseover → mousedown → focus → mouseup → click
+- Full type system: synthetic InputEvents → execCommand fallback → native value setter (works on React/Vue)
+- MacroTool pattern: pack all tools into single LLM function with reflection fields
+- Auto-fixer: 7 strategies to fix malformed LLM responses
+
+**From OpenCLI:**
+- 12-stage DOM snapshot: visibility, occlusion, shadow DOM, iframes, ad filtering, diff marking
+- Pipeline engine: 17 YAML steps with template expressions and 16 filters
+- Strategy cascade: PUBLIC → COOKIE → HEADER → INTERCEPT auto-detection
+- Explore engine: smart scroll, interactive fuzzing, endpoint scoring, artifact generation
+- Adapter registry: YAML/TypeScript adapters with lazy loading
+- Network interceptor: dual fetch + XHR patching
+- Download system: HTTP + yt-dlp + cookie forwarding + progress tracking
+- Batch IPC: N fetch requests in single evaluate() call
+
+### What makes LobsterCLI different from all three
+
+None of the original projects could do everything:
+
+| Capability | Lightpanda | Page Agent | OpenCLI | LobsterCLI |
+|-----------|-----------|-----------|---------|------------|
+| Fast fetch (no Chrome) | Yes | No | No | **Yes** |
+| AI agent navigation | No | Yes | No | **Yes** |
+| Site adapters (YAML) | No | No | Yes | **Yes** |
+| Pipeline engine | No | No | Yes | **Yes** |
+| API discovery | No | No | Yes | **Yes** |
+| Smart routing | No | No | Partial | **Yes** |
+| Works without AI | Yes | No | Yes | **Yes** |
+| Chrome extension | No | No | Yes (different) | **Yes** |
+| Importable as library | No | No | No | **Yes** |
+| Intent classifier (Brain) | No | No | No | **Yes** |
+| Screenshot + vision | No | No | No | **Yes** |
+| Multi-provider LLM | No | Yes (OpenAI only) | No | **Yes** (4 providers) |
+
+**LobsterCLI is the first tool that combines all three approaches** — fast headless fetching, AI agent automation, and pre-built site adapters — into a single installable package that works as a CLI, a Chrome extension, and an importable library.
+
+All code is written in-house. No wrappers, no imports from the source projects. We took inspiration and patterns, then built everything from scratch in TypeScript.
+
+---
+
 ## License
 
 MIT
