@@ -1,48 +1,79 @@
 /**
- * LobsterCLI Extension — Chat UI
+ * LobsterCLI Extension — Chat UI (works as popup AND side panel)
  */
 
 let currentTab = null;
 let aiConfig = null;
 let chatStarted = false;
 let interceptorActive = false;
+let pageAccessible = false;
 
 // ── Init ──
 document.addEventListener('DOMContentLoaded', async () => {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  currentTab = tab;
-
   // Load AI config
   const stored = await chrome.storage.local.get(['aiProvider', 'aiApiKey', 'aiModel', 'aiBaseURL']);
   if (stored.aiApiKey || stored.aiProvider === 'ollama') {
     aiConfig = stored;
   }
 
-  // Page context bar
-  if (currentTab?.title) {
-    document.getElementById('context-text').textContent = currentTab.title;
-  }
-
-  // Cannot access browser pages
-  if (!currentTab?.url || currentTab.url.startsWith('chrome://') || currentTab.url.startsWith('chrome-extension://')) {
-    document.getElementById('context-text').textContent = 'Cannot access browser pages';
-    disableSuggestions();
-  }
-
   setupListeners();
+
+  // Get current tab and update context
+  await refreshCurrentTab();
+
+  // Listen for tab switches (critical for side panel — it stays open)
+  chrome.tabs.onActivated.addListener(async () => {
+    await refreshCurrentTab();
+  });
+
+  // Listen for tab URL changes (navigation within same tab)
+  chrome.tabs.onUpdated.addListener(async (tabId, changeInfo) => {
+    if (changeInfo.status === 'complete' && currentTab && tabId === currentTab.id) {
+      await refreshCurrentTab();
+    }
+  });
 });
 
+async function refreshCurrentTab() {
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+    currentTab = tab;
+
+    const isRestricted = !tab?.url ||
+      tab.url.startsWith('chrome://') ||
+      tab.url.startsWith('chrome-extension://') ||
+      tab.url.startsWith('about:') ||
+      tab.url.startsWith('edge://') ||
+      tab.url === '';
+
+    pageAccessible = !isRestricted;
+
+    // Update context bar
+    const contextText = document.getElementById('context-text');
+    if (pageAccessible) {
+      contextText.textContent = tab.title || tab.url;
+      enableSuggestions();
+    } else {
+      contextText.textContent = 'Navigate to a website to analyze it';
+    }
+  } catch {
+    pageAccessible = false;
+  }
+}
+
+function enableSuggestions() {
+  document.querySelectorAll('.suggestion-chip').forEach(c => c.disabled = false);
+}
+
+function disableSuggestions() {
+  document.querySelectorAll('.suggestion-chip').forEach(c => c.disabled = true);
+}
+
 function setupListeners() {
-  // Settings
   document.getElementById('btn-settings').addEventListener('click', () => chrome.runtime.openOptionsPage());
-
-  // New chat
   document.getElementById('btn-new-chat').addEventListener('click', resetChat);
-
-  // Send button
   document.getElementById('btn-send').addEventListener('click', handleSend);
 
-  // Enter to send (Shift+Enter for newline)
   document.getElementById('chat-input').addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -50,34 +81,27 @@ function setupListeners() {
     }
   });
 
-  // Auto-resize textarea
   document.getElementById('chat-input').addEventListener('input', (e) => {
     e.target.style.height = 'auto';
-    e.target.style.height = Math.min(e.target.scrollHeight, 100) + 'px';
+    e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px';
   });
 
-  // Suggestion chips
   document.querySelectorAll('.suggestion-chip').forEach(chip => {
     chip.addEventListener('click', () => handleAction(chip.dataset.action));
   });
 
-  // Context close
   document.getElementById('context-close').addEventListener('click', () => {
     document.getElementById('context-bar').style.display = 'none';
   });
 }
 
-function disableSuggestions() {
-  document.querySelectorAll('.suggestion-chip').forEach(c => c.disabled = true);
-}
-
 // ── Chat Management ──
 function resetChat() {
   chatStarted = false;
+  interceptorActive = false;
   const chatArea = document.getElementById('chat-area');
   chatArea.innerHTML = '';
 
-  // Re-add welcome
   const welcome = document.createElement('div');
   welcome.className = 'welcome';
   welcome.id = 'welcome';
@@ -95,13 +119,14 @@ function resetChat() {
   `;
   chatArea.appendChild(welcome);
 
-  // Re-bind chips
   welcome.querySelectorAll('.suggestion-chip').forEach(chip => {
     chip.addEventListener('click', () => handleAction(chip.dataset.action));
   });
 
   document.getElementById('chat-input').value = '';
   document.getElementById('chat-input').style.height = 'auto';
+  document.getElementById('context-bar').style.display = 'flex';
+  refreshCurrentTab();
 }
 
 function startChat() {
@@ -123,8 +148,6 @@ function addUserMessage(text) {
 
 function addBotMessage(html, actions = []) {
   const chatArea = document.getElementById('chat-area');
-
-  // Remove typing indicator if present
   const typing = chatArea.querySelector('.typing-indicator');
   if (typing) typing.parentElement.remove();
 
@@ -134,7 +157,7 @@ function addBotMessage(html, actions = []) {
   let actionsHtml = '';
   if (actions.length > 0) {
     actionsHtml = '<div class="msg-actions">' +
-      actions.map(a => `<button class="msg-action-btn" data-copy="${a.copy || ''}" data-action="${a.action || ''}">${a.label}</button>`).join('') +
+      actions.map(a => `<button class="msg-action-btn" data-copy="${a.copy ? 'true' : ''}" data-action="${a.action || ''}">${a.label}</button>`).join('') +
       '</div>';
   }
 
@@ -143,17 +166,19 @@ function addBotMessage(html, actions = []) {
     <div class="msg-bubble">${html}${actionsHtml}</div>
   `;
 
+  // Store copy data on buttons
   chatArea.appendChild(msg);
 
-  // Bind action buttons
-  msg.querySelectorAll('.msg-action-btn').forEach(btn => {
+  const actionBtns = msg.querySelectorAll('.msg-action-btn');
+  actionBtns.forEach((btn, i) => {
     btn.addEventListener('click', () => {
-      if (btn.dataset.copy) {
-        navigator.clipboard.writeText(btn.dataset.copy);
+      if (actions[i]?.copy) {
+        navigator.clipboard.writeText(actions[i].copy);
+        const original = btn.textContent;
         btn.textContent = 'Copied!';
-        setTimeout(() => { btn.textContent = btn.textContent; }, 1500);
+        setTimeout(() => { btn.textContent = original; }, 1500);
       }
-      if (btn.dataset.action) handleAction(btn.dataset.action);
+      if (actions[i]?.action) handleAction(actions[i].action);
     });
   });
 
@@ -188,9 +213,15 @@ async function handleSend() {
   input.style.height = 'auto';
 
   addUserMessage(text);
+
+  // Check page access
+  if (!pageAccessible) {
+    addBotMessage('Navigate to a website first — I can\'t access browser internal pages like <code>chrome://</code> or the new tab page.<br><br>Try opening any website and I\'ll be able to analyze it for you!');
+    return;
+  }
+
   showTyping();
 
-  // Check if it's a command or AI question
   const lower = text.toLowerCase();
 
   if (lower.includes('summar') || lower.includes('what is this page') || lower.includes('about this page')) {
@@ -201,21 +232,28 @@ async function handleSend() {
     await handleAction('forms');
   } else if (lower.includes('link')) {
     await handleAction('links');
-  } else if (lower.includes('network') || lower.includes('api call') || lower.includes('monitor')) {
+  } else if (lower.includes('network') || lower.includes('api call') || lower.includes('monitor') || lower.includes('show network')) {
     await handleAction('network');
   } else if (lower.includes('snapshot') || lower.includes('dom')) {
     await handleAction('snapshot');
   } else {
-    // AI question
     await handleAIQuestion(text);
   }
 }
 
 // ── Actions ──
 async function handleAction(action) {
+  if (!pageAccessible) {
+    if (!chatStarted) {
+      startChat();
+      addUserMessage(action);
+    }
+    addBotMessage('Navigate to a website first — I can\'t access browser internal pages.<br><br>Open any website like <b>google.com</b> and try again!');
+    return;
+  }
+
   if (!chatStarted) {
     startChat();
-    // Add a contextual user message for chip clicks
     const labels = {
       summary: 'Summarize this page',
       extract: 'Extract as Markdown',
@@ -297,20 +335,12 @@ async function doSummary() {
     html += `<span class="badge badge-green">${summary.linkCount} links</span>`;
     html += '</div>';
 
-    if (summary.h1 || summary.title) {
-      html += `<h3>Title</h3><p>${escapeHtml(summary.h1 || summary.title)}</p>`;
-    }
-    if (summary.description) {
-      html += `<h3>Description</h3><p>${escapeHtml(summary.description)}</p>`;
-    }
-    if (summary.mainText) {
-      html += `<h3>Content Preview</h3><p>${escapeHtml(summary.mainText)}${summary.mainText.length >= 400 ? '...' : ''}</p>`;
-    }
+    if (summary.h1 || summary.title) html += `<h3>Title</h3><p>${escapeHtml(summary.h1 || summary.title)}</p>`;
+    if (summary.description) html += `<h3>Description</h3><p>${escapeHtml(summary.description)}</p>`;
+    if (summary.mainText) html += `<h3>Content Preview</h3><p>${escapeHtml(summary.mainText)}${summary.mainText.length >= 400 ? '...' : ''}</p>`;
     if (summary.headings?.length > 0) {
       html += '<h3>Structure</h3><ul>';
-      for (const h of summary.headings) {
-        html += `<li>${'#'.repeat(h.level)} ${escapeHtml(h.text)}</li>`;
-      }
+      for (const h of summary.headings) html += `<li>${'#'.repeat(h.level)} ${escapeHtml(h.text)}</li>`;
       html += '</ul>';
     }
 
@@ -359,7 +389,6 @@ async function doForms() {
     }
 
     let html = `<h3>${state.forms.length} form(s) found</h3>`;
-
     for (const form of state.forms) {
       html += '<div class="form-card">';
       html += `<h4><span class="badge badge-blue">${form.method}</span> ${escapeHtml(form.name || form.id || 'Unnamed Form')}</h4>`;
@@ -411,7 +440,6 @@ async function doLinks() {
       html += `<li><a href="${escapeHtml(link.href)}" target="_blank">${escapeHtml(link.text)}</a></li>`;
     }
     html += '</ul>';
-
     addBotMessage(html);
   } catch (err) {
     addBotMessage('Error extracting links: ' + escapeHtml(err.message));
@@ -424,16 +452,13 @@ async function doNetwork() {
       await chrome.scripting.executeScript({ target: { tabId: currentTab.id }, files: ['shared/interceptor.js'] });
       await execInPage(() => lobsterInstallInterceptor());
       interceptorActive = true;
-      addBotMessage(
-        'Network monitor activated! I\'m now intercepting all fetch/XHR calls on this page.<br><br>Browse around and interact with the page, then ask me <b>"show network"</b> to see captured API calls.',
-      );
+      addBotMessage('Network monitor activated! I\'m intercepting all fetch/XHR calls now.<br><br>Browse around, then type <b>"show network"</b> to see captured API calls.');
     } catch (err) {
       addBotMessage('Error starting network monitor: ' + escapeHtml(err.message));
     }
     return;
   }
 
-  // Refresh captured requests
   const requests = await execInPage(() => {
     const store = window.__lobster_interceptor__;
     if (!store) return [];
@@ -453,22 +478,24 @@ async function doNetwork() {
     try { const u = new URL(req.url); displayUrl = u.pathname + u.search; } catch {}
     html += `<div class="network-entry"><span class="method ${req.method}">${req.method}</span><span>${escapeHtml(displayUrl.slice(0, 80))}</span></div>`;
   }
-
   addBotMessage(html, [{ label: 'Copy as JSON', copy: JSON.stringify(requests, null, 2) }]);
 }
 
 async function handleAIQuestion(question) {
   if (!aiConfig) {
     addBotMessage(
-      'AI features need an API key to work. You can configure one in the settings.<br><br>' +
+      'AI features need an API key. Click the <b>gear icon</b> above to configure one.<br><br>' +
       'Supports <b>OpenAI</b>, <b>Anthropic</b>, <b>Google Gemini</b> (free tier!), and <b>Ollama</b> (local, free).<br><br>' +
-      'Meanwhile, try the built-in commands — they work without AI!',
-    );
+      'Meanwhile, try the built-in commands — they work without any AI!');
+    return;
+  }
+
+  if (!pageAccessible) {
+    addBotMessage('Navigate to a website first so I can analyze its content for you.');
     return;
   }
 
   try {
-    // Get page content
     await chrome.scripting.executeScript({ target: { tabId: currentTab.id }, files: ['shared/markdown.js'] });
     const markdown = await execInPage(() => {
       try { return lobsterMarkdown(); }
@@ -487,9 +514,7 @@ async function handleAIQuestion(question) {
     if (response.error) {
       addBotMessage('Error: ' + escapeHtml(response.error));
     } else {
-      // Simple markdown-ish rendering
-      const formatted = formatAIResponse(response.answer);
-      addBotMessage(formatted);
+      addBotMessage(formatAIResponse(response.answer));
     }
   } catch (err) {
     addBotMessage('Error: ' + escapeHtml(err.message));
@@ -513,17 +538,13 @@ async function execInPage(func, args = []) {
 
 function formatAIResponse(text) {
   if (!text) return '';
-  // Basic formatting: bold, code, line breaks
   return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     .replace(/\*\*(.*?)\*\*/g, '<b>$1</b>')
-    .replace(/`(.*?)`/g, '<code style="background:var(--bg);padding:1px 5px;border-radius:3px;font-size:11px">$1</code>')
+    .replace(/`(.*?)`/g, '<code style="background:var(--bg);padding:1px 5px;border-radius:3px;font-size:12px">$1</code>')
     .replace(/\n\n/g, '</p><p>')
     .replace(/\n/g, '<br>')
-    .replace(/^/, '<p>')
-    .replace(/$/, '</p>');
+    .replace(/^/, '<p>').replace(/$/, '</p>');
 }
 
 function escapeHtml(str) {
