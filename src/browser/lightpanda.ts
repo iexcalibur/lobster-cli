@@ -430,10 +430,12 @@ export function extractLinks(nodes: HtmlNode[], baseUrl?: string): { text: strin
 export interface LobsterFetchResult {
   url: string;
   finalUrl: string;
-  status: number;
+  status?: number;
+  statusCode?: number;
   title: string;
   content: string;
   links?: { text: string; href: string }[];
+  engine?: string;
   duration: number;
 }
 
@@ -455,6 +457,33 @@ export async function lobsterFetch(
 
   const start = Date.now();
 
+  // ── PDF detection: check URL pattern first ──
+  const { isPdfUrl, isPdfResponse, extractPdf } = await import('./pdf.js');
+
+  if (isPdfUrl(url)) {
+    const pdfResult = await extractPdf(url);
+    const duration = Date.now() - start;
+    let content: string;
+    switch (dump) {
+      case 'markdown': content = pdfResult.markdown; break;
+      case 'text': content = pdfResult.text; break;
+      case 'html': content = `<pre>${pdfResult.text}</pre>`; break;
+      case 'snapshot': content = `[PDF] ${pdfResult.metadata.title} (${pdfResult.metadata.pages} pages, ${pdfResult.wordCount} words)\n\n${pdfResult.text.slice(0, 5000)}`; break;
+      case 'links': content = ''; break;
+      default: content = pdfResult.markdown;
+    }
+    return {
+      url,
+      finalUrl: url,
+      title: pdfResult.metadata.title,
+      content,
+      links: [],
+      engine: 'pdf',
+      duration,
+      statusCode: 200,
+    };
+  }
+
   const resp = await fetch(url, {
     headers: {
       'User-Agent': 'LobsterCLI/0.1 (+https://github.com/iexcalibur/lobster-cli)',
@@ -468,6 +497,45 @@ export async function lobsterFetch(
 
   if (!resp.ok) {
     throw new Error(`HTTP ${resp.status} ${resp.statusText}`);
+  }
+
+  // ── PDF detection: check content-type from response ──
+  const contentType = resp.headers.get('content-type') || '';
+  if (isPdfResponse(contentType)) {
+    const arrayBuffer = await resp.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+
+    // Re-import extractPdf with buffer support
+    const pdfMod = await import('pdf-parse');
+    const pdfParseFn = (pdfMod as any).PDFParse || (pdfMod as any).default || pdfMod;
+    const pdfResult = await pdfParseFn(buffer);
+    const info = pdfResult.info || {};
+    const metadata = {
+      title: info.Title || 'untitled',
+      author: info.Author || '',
+      pages: pdfResult.numpages,
+    };
+    const duration = Date.now() - start;
+    const text = pdfResult.text || '';
+
+    let content: string;
+    switch (dump) {
+      case 'text': content = text; break;
+      case 'html': content = `<pre>${text}</pre>`; break;
+      case 'snapshot': content = `[PDF] ${metadata.title} (${metadata.pages} pages)\n\n${text.slice(0, 5000)}`; break;
+      default: content = text; // Markdown conversion would need the full module
+    }
+
+    return {
+      url,
+      finalUrl: resp.url || url,
+      title: metadata.title,
+      content,
+      links: [],
+      engine: 'pdf',
+      duration,
+      statusCode: 200,
+    };
   }
 
   const html = await resp.text();

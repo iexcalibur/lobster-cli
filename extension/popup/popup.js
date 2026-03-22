@@ -538,6 +538,54 @@ async function handleSmartQuestion(question) {
   }
 
   try {
+    // ── PDF Detection: if current page is a PDF, extract via background worker ──
+    const isPdf = currentTab.url?.toLowerCase().endsWith('.pdf') ||
+                  /\/pdf\//.test(currentTab.url || '') ||
+                  /arxiv\.org\/pdf\//.test(currentTab.url || '') ||
+                  /[?&]format=pdf/i.test(currentTab.url || '');
+
+    if (isPdf) {
+      addBotMessage('<span class="badge">PDF</span> Extracting text from PDF...');
+
+      const pdfResult = await chrome.runtime.sendMessage({
+        action: 'extractPdf',
+        url: currentTab.url,
+      });
+
+      if (!pdfResult.success) {
+        addBotMessage('Failed to extract PDF: ' + escapeHtml(pdfResult.error));
+        return;
+      }
+
+      const pdfContext = `[PDF Document: ${pdfResult.metadata.title}]\n` +
+        `Pages: ${pdfResult.metadata.pages} | Words: ${pdfResult.wordCount}\n` +
+        `Author: ${pdfResult.metadata.author || 'unknown'}\n\n` +
+        pdfResult.text.slice(0, 15000);
+
+      // Remove the "extracting" message
+      const msgs = document.getElementById('messages');
+      if (msgs.lastChild) msgs.removeChild(msgs.lastChild);
+
+      // Send to AI with PDF content
+      const response = await chrome.runtime.sendMessage({
+        action: 'askAI',
+        prompt: question,
+        pageContent: pdfContext,
+        pageUrl: currentTab.url,
+        pageTitle: pdfResult.metadata.title,
+        screenshot: null,
+      });
+
+      if (response.error) {
+        addBotMessage('Error: ' + escapeHtml(response.error));
+      } else {
+        addBotMessage(formatAIResponse(response.answer));
+      }
+      return;
+    }
+
+    // ── Normal page flow ──
+
     // Step 1: Ask the Brain what data sources we need
     const brain = await chrome.runtime.sendMessage({
       action: 'brain',

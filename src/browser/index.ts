@@ -4,6 +4,7 @@ export { FLAT_TREE_SCRIPT, flatTreeToString, SNAPSHOT_SCRIPT, buildSnapshotScrip
 export { buildInterceptorScript, GET_INTERCEPTED_SCRIPT } from './interceptor.js';
 export { waitForCondition } from './wait.js';
 export { lobsterFetch, parseHtml, extractMarkdown, extractText, extractSnapshot, extractLinks } from './lightpanda.js';
+export { extractPdf, tryExtractPdf, isPdfUrl, isPdfResponse, type PdfExtractResult, type PdfMetadata } from './pdf.js';
 export { createProfile, listProfiles, removeProfile, getProfileDataDir, resetProfileCache } from './profiles.js';
 export { discoverChrome, resolveAttachTarget } from './chrome-attach.js';
 export { STEALTH_SCRIPT, injectStealth, STEALTH_ARGS } from './stealth.js';

@@ -44,6 +44,7 @@ export default defineConfig([
       'cascade/index': 'src/cascade/index.ts',
       'output/index': 'src/output/index.ts',
       'types/index': 'src/types/index.ts',
+      'doc/index': 'src/doc/index.ts',
     },
     format: ['esm'],
     target: 'node20',

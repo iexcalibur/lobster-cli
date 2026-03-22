@@ -48,6 +48,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message.action === 'extractPdf') {
+    handleExtractPdf(message).then(sendResponse);
+    return true;
+  }
+
   if (message.action === 'testConnection') {
     handleTestConnection(message).then(sendResponse);
     return true;
@@ -316,6 +321,60 @@ async function callAnthropic(baseURL, apiKey, model, systemPrompt, userPrompt, s
 
   const data = await resp.json();
   return data.content?.[0]?.text || 'No response from AI';
+}
+
+/**
+ * Extract text from a PDF URL.
+ * Uses pdf.js (Mozilla) which works in service worker context.
+ */
+async function handleExtractPdf({ url }) {
+  try {
+    // Import pdf.js from CDN (works in service workers)
+    const pdfjsLib = await import('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.min.mjs');
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.worker.min.mjs';
+
+    // Fetch PDF
+    const response = await fetch(url);
+    const arrayBuffer = await response.arrayBuffer();
+
+    // Load PDF document
+    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+    const numPages = pdf.numPages;
+    const pages = [];
+    let fullText = '';
+
+    // Extract text from all pages
+    for (let i = 1; i <= numPages; i++) {
+      const page = await pdf.getPage(i);
+      const textContent = await page.getTextContent();
+      const pageText = textContent.items
+        .map(item => item.str)
+        .join(' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+      pages.push(pageText);
+      fullText += pageText + '\n\n';
+    }
+
+    // Extract metadata
+    const metadata = await pdf.getMetadata().catch(() => ({}));
+    const info = metadata?.info || {};
+
+    return {
+      success: true,
+      text: fullText.trim(),
+      pages,
+      metadata: {
+        title: info.Title || 'untitled',
+        author: info.Author || '',
+        pages: numPages,
+        creator: info.Creator || '',
+      },
+      wordCount: fullText.split(/\s+/).filter(Boolean).length,
+    };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
 }
 
 /**

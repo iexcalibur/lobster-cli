@@ -71,6 +71,27 @@ export function createCLI(): Command {
       const engine = opts.engine as string;
       const dump = opts.dump as string;
 
+      // ── Document detection: PDF, DOCX, XLSX, PPTX, EPUB, CSV, JSON ──
+      const docExtensions = /\.(pdf|docx?|xlsx?|pptx?|epub|csv|tsv|json|jsonl)(\?.*)?$/i;
+      const isDocument = docExtensions.test(url) || /\/pdf\//.test(url) || /arxiv\.org\/pdf/.test(url);
+
+      if (isDocument) {
+        const { convertDocument } = await import('./doc/index.js');
+        try {
+          const result = await convertDocument(url);
+          console.log(`Source: ${result.source}`);
+          console.log(`Format: ${result.format} | Pages: ${result.pages} | Words: ${result.wordCount}`);
+          console.log(`Title: ${result.title}`);
+          console.log(`Engine: LobsterDoc (${result.duration}ms)`);
+          console.log(`---`);
+          console.log(result.markdown);
+          return;
+        } catch (err: any) {
+          log.debug(`LobsterDoc failed: ${err.message}, falling back to fetch`);
+          // Fall through to regular fetch for non-document URLs
+        }
+      }
+
       // ── Fast engine: in-house parser, no Chrome needed ──
       const useFast = engine === 'fast' || engine === 'auto';
 
@@ -85,7 +106,7 @@ export function createCLI(): Command {
 
           console.log(`URL: ${result.finalUrl}`);
           console.log(`Title: ${result.title}`);
-          console.log(`Engine: fast (${result.duration}ms) | Status: ${result.status}`);
+          console.log(`Engine: fast (${result.duration}ms) | Status: ${result.status || result.statusCode}`);
           console.log(`---`);
           console.log(result.content);
           return;
