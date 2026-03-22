@@ -77,18 +77,49 @@ export function createCLI(): Command {
 
       if (isDocument) {
         const { convertDocument } = await import('./doc/index.js');
+
+        // Check if AI-assisted PDF repair is available
+        const hasAIKey = !!(config.llm?.apiKey);
+        const isPdf = /\.pdf(\?.*)?$/i.test(url) || /\/pdf\//.test(url) || /arxiv\.org\/pdf/.test(url);
+
         try {
-          const result = await convertDocument(url);
+          const result = await convertDocument(url, {
+            pdf: isPdf && hasAIKey ? {
+              aiAssist: true,
+              sourceUrl: url,
+              getBrowser: async () => {
+                const { BrowserManager } = await import('./browser/manager.js');
+                const manager = new BrowserManager({
+                  executablePath: config.browser?.executablePath || undefined,
+                  headless: true,
+                });
+                const page = await manager.newPage();
+                return {
+                  page,
+                  close: async () => { await manager.close(); },
+                };
+              },
+              callAI: async (prompt: string, screenshot: string) => {
+                const { OpenAIClient } = await import('./llm/openai-client.js');
+                const client = new OpenAIClient({
+                  baseURL: config.llm.baseURL,
+                  apiKey: config.llm.apiKey,
+                  model: config.llm.model,
+                  provider: config.llm.provider as any,
+                });
+                return client.chatWithVision(prompt, screenshot);
+              },
+            } : undefined,
+          });
           console.log(`Source: ${result.source}`);
           console.log(`Format: ${result.format} | Pages: ${result.pages} | Words: ${result.wordCount}`);
           console.log(`Title: ${result.title}`);
-          console.log(`Engine: LobsterDoc (${result.duration}ms)`);
+          console.log(`Engine: LobsterDoc${isPdf && hasAIKey ? ' + AI Doctor' : ''} (${result.duration}ms)`);
           console.log(`---`);
           console.log(result.markdown);
           return;
         } catch (err: any) {
           log.debug(`LobsterDoc failed: ${err.message}, falling back to fetch`);
-          // Fall through to regular fetch for non-document URLs
         }
       }
 

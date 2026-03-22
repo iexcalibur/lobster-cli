@@ -248,4 +248,76 @@ export class OpenAIClient {
       } : undefined,
     };
   }
+
+  /**
+   * Simple vision call — send a screenshot + text prompt, get text back.
+   * Used by PDF Doctor for targeted issue resolution.
+   */
+  async chatWithVision(prompt: string, screenshotBase64: string): Promise<string> {
+    const headers = this.buildHeaders();
+
+    if (this.config.provider === 'anthropic') {
+      // Anthropic vision format
+      const body = {
+        model: this.config.model,
+        max_tokens: 1024,
+        temperature: 0.1,
+        messages: [{
+          role: 'user',
+          content: [
+            {
+              type: 'image',
+              source: {
+                type: 'base64',
+                media_type: 'image/jpeg',
+                data: screenshotBase64,
+              },
+            },
+            { type: 'text', text: prompt },
+          ],
+        }],
+      };
+
+      const resp = await fetch(`${this.config.baseURL}/messages`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(body),
+      });
+
+      if (!resp.ok) throw new Error(`Anthropic vision error: ${resp.status}`);
+      const json = await resp.json() as Record<string, unknown>;
+      const content = json.content as any[];
+      return content?.[0]?.text || '';
+    }
+
+    // OpenAI-compatible vision format (OpenAI, Gemini, Ollama)
+    const body = {
+      model: this.config.model,
+      max_tokens: 1024,
+      temperature: 0.1,
+      messages: [{
+        role: 'user',
+        content: [
+          {
+            type: 'image_url',
+            image_url: {
+              url: `data:image/jpeg;base64,${screenshotBase64}`,
+            },
+          },
+          { type: 'text', text: prompt },
+        ],
+      }],
+    };
+
+    const resp = await fetch(`${this.config.baseURL}/chat/completions`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body),
+    });
+
+    if (!resp.ok) throw new Error(`Vision API error: ${resp.status}`);
+    const json = await resp.json() as Record<string, unknown>;
+    const choice = (json.choices as any[])?.[0];
+    return choice?.message?.content || '';
+  }
 }

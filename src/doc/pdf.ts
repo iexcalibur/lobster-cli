@@ -18,6 +18,14 @@ export interface PdfConvertOptions {
   removeHeadersFooters?: boolean;
   /** Merge text across pages */
   crossPageMerge?: boolean;
+  /** Enable AI-assisted issue resolution (requires browser + AI config) */
+  aiAssist?: boolean;
+  /** Browser factory for screenshots (only used if aiAssist is true) */
+  getBrowser?: () => Promise<{ page: any; close: () => Promise<void> }>;
+  /** AI vision call (only used if aiAssist is true) */
+  callAI?: (prompt: string, screenshot: string) => Promise<string>;
+  /** The original URL (needed for browser navigation) */
+  sourceUrl?: string;
 }
 
 interface PdfPage {
@@ -129,9 +137,39 @@ export async function convertPdf(
   }
 
   // Step 9: Detect authors from the first few lines
-  const authors = detectAuthors(pages[0]?.lines || []);
+  let authors = detectAuthors(pages[0]?.lines || []);
 
-  // Step 10: Final cleanup
+  // Step 10: AI-assisted issue resolution (optional)
+  if (options?.aiAssist && options.getBrowser && options.callAI && options.sourceUrl) {
+    const { detectIssues, resolveIssuesWithAI, applyPatches } = await import('./pdf-doctor.js');
+
+    const issues = detectIssues(markdown, pages[0]?.lines || [], title, authors);
+
+    if (issues.length > 0) {
+      try {
+        const patches = await resolveIssuesWithAI(options.sourceUrl, issues, {
+          getBrowser: options.getBrowser,
+          callAI: options.callAI,
+        });
+
+        if (patches.length > 0) {
+          markdown = applyPatches(markdown, patches);
+
+          // Re-extract authors if the author patch was applied
+          const authorPatch = patches.find(p => p.replace.includes('**Authors:**'));
+          if (authorPatch) {
+            const authorMatch = authorPatch.replace.match(/\*\*Authors:\*\*\s*(.+)/);
+            if (authorMatch) authors = authorMatch[1];
+          }
+        }
+      } catch (err) {
+        // AI resolution failed — keep original extraction
+        // This is fine, the text extraction is still usable
+      }
+    }
+  }
+
+  // Step 11: Final cleanup
   markdown = finalCleanup(markdown, title, authors, info);
 
   return {
