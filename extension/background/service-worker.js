@@ -28,7 +28,10 @@ const PROVIDERS = {
   },
 };
 
-// Listen for messages from popup
+// ── Open side panel when extension icon is clicked ──
+chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
+
+// Listen for messages from side panel
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === 'askAI') {
     handleAskAI(message).then(sendResponse);
