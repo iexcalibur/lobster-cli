@@ -1,6 +1,7 @@
 import type { z } from 'zod';
 
 export interface LLMConfig {
+  provider?: string;
   baseURL: string;
   model: string;
   apiKey?: string;

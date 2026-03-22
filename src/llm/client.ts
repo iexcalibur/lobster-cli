@@ -23,6 +23,7 @@ export class LLM {
       model: config.model,
       apiKey: config.apiKey,
       temperature: config.temperature,
+      provider: config.provider as any,
     });
   }
 

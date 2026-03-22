@@ -1,5 +1,6 @@
 export const DEFAULT_CONFIG = {
   llm: {
+    provider: 'openai' as const,
     baseURL: 'https://api.openai.com/v1',
     model: 'gpt-4o',
     apiKey: '',

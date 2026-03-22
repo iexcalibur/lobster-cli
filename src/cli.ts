@@ -234,6 +234,15 @@ export function createCLI(): Command {
       }
     });
 
+  // === lobster setup ===
+  program
+    .command('setup')
+    .description('Interactive setup wizard — configure AI provider, API key, and model')
+    .action(async () => {
+      const { runSetup } = await import('./setup.js');
+      await runSetup();
+    });
+
   // === lobster doctor ===
   program
     .command('doctor')
@@ -244,8 +253,10 @@ export function createCLI(): Command {
 
       // Check config
       console.log('Configuration:');
+      console.log(`  LLM Provider: ${config.llm.provider || 'openai'}`);
       console.log(`  LLM Model: ${config.llm.model}`);
-      console.log(`  LLM API Key: ${config.llm.apiKey ? 'set' : 'NOT SET'}`);
+      console.log(`  LLM API Key: ${config.llm.apiKey ? 'set' : 'NOT SET — run lobster setup'}`);
+      console.log(`  LLM Base URL: ${config.llm.baseURL}`);
       console.log(`  Browser Path: ${config.browser.executablePath || 'auto-detect'}`);
       console.log(`  CDP Endpoint: ${config.browser.cdpEndpoint || 'none'}`);
 

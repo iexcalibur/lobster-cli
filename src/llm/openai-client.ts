@@ -1,12 +1,14 @@
 import type { Message, ToolCall } from '../types/llm.js';
 import type { LLMTool } from '../types/llm.js';
 import { InvokeError, InvokeErrorType } from './errors.js';
+import type { LLMProvider } from '../config/schema.js';
 
 export interface OpenAIClientConfig {
   baseURL: string;
   model: string;
   apiKey?: string;
   temperature?: number;
+  provider?: LLMProvider;
 }
 
 export class OpenAIClient {
@@ -16,15 +18,42 @@ export class OpenAIClient {
     this.config = config;
   }
 
-  async chatCompletion(
+  /**
+   * Build auth headers based on the provider.
+   * - OpenAI/Gemini/Ollama: Bearer token
+   * - Anthropic: x-api-key header + anthropic-version
+   */
+  private buildHeaders(): Record<string, string> {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+
+    if (!this.config.apiKey) return headers;
+
+    if (this.config.provider === 'anthropic') {
+      headers['x-api-key'] = this.config.apiKey;
+      headers['anthropic-version'] = '2023-06-01';
+    } else {
+      headers['Authorization'] = `Bearer ${this.config.apiKey}`;
+    }
+
+    return headers;
+  }
+
+  /**
+   * Build the request body based on provider.
+   * Anthropic Messages API is different from OpenAI chat completions.
+   */
+  private buildBody(
     messages: Message[],
     tools?: LLMTool[],
-    opts?: { toolChoice?: string | { type: 'function'; function: { name: string } } }
-  ): Promise<{
-    toolCalls?: ToolCall[];
-    content?: string;
-    usage?: { promptTokens: number; completionTokens: number; totalTokens: number };
-  }> {
+    opts?: { toolChoice?: string | { type: 'function'; function: { name: string } } },
+  ): { url: string; body: Record<string, unknown> } {
+    if (this.config.provider === 'anthropic') {
+      return this.buildAnthropicBody(messages, tools, opts);
+    }
+
+    // OpenAI-compatible format (OpenAI, Gemini, Ollama all use this)
     const body: Record<string, unknown> = {
       model: this.config.model,
       messages,
@@ -41,16 +70,128 @@ export class OpenAIClient {
       }
     }
 
-    const url = `${this.config.baseURL}/chat/completions`;
+    return { url: `${this.config.baseURL}/chat/completions`, body };
+  }
+
+  /**
+   * Build Anthropic Messages API request.
+   * Converts OpenAI-style messages/tools to Anthropic format.
+   */
+  private buildAnthropicBody(
+    messages: Message[],
+    tools?: LLMTool[],
+    opts?: { toolChoice?: string | { type: 'function'; function: { name: string } } },
+  ): { url: string; body: Record<string, unknown> } {
+    // Extract system message
+    let system: string | undefined;
+    const anthropicMessages: Record<string, unknown>[] = [];
+
+    for (const msg of messages) {
+      if (msg.role === 'system') {
+        system = msg.content as string;
+      } else {
+        anthropicMessages.push({
+          role: msg.role === 'assistant' ? 'assistant' : 'user',
+          content: msg.content,
+        });
+      }
+    }
+
+    const body: Record<string, unknown> = {
+      model: this.config.model,
+      messages: anthropicMessages,
+      max_tokens: 4096,
+      temperature: this.config.temperature ?? 0.1,
+    };
+
+    if (system) body.system = system;
+
+    // Convert OpenAI tools format to Anthropic tools format
+    if (tools && tools.length > 0) {
+      body.tools = tools.map((t) => {
+        const fn = (t as any).function;
+        return {
+          name: fn.name,
+          description: fn.description,
+          input_schema: fn.parameters,
+        };
+      });
+
+      if (opts?.toolChoice) {
+        if (typeof opts.toolChoice === 'string') {
+          body.tool_choice = opts.toolChoice === 'required'
+            ? { type: 'any' }
+            : { type: opts.toolChoice };
+        } else {
+          body.tool_choice = { type: 'tool', name: opts.toolChoice.function.name };
+        }
+      }
+    }
+
+    return { url: `${this.config.baseURL}/messages`, body };
+  }
+
+  /**
+   * Parse Anthropic response into our unified format.
+   */
+  private parseAnthropicResponse(json: Record<string, unknown>): {
+    toolCalls?: ToolCall[];
+    content?: string;
+    usage?: { promptTokens: number; completionTokens: number; totalTokens: number };
+  } {
+    const content = json.content as any[];
+    if (!content || !Array.isArray(content)) {
+      throw new InvokeError(InvokeErrorType.UNKNOWN, 'No content in Anthropic response', { rawResponse: json });
+    }
+
+    let textContent: string | undefined;
+    const toolCalls: ToolCall[] = [];
+
+    for (const block of content) {
+      if (block.type === 'text') {
+        textContent = block.text;
+      } else if (block.type === 'tool_use') {
+        toolCalls.push({
+          id: block.id,
+          type: 'function',
+          function: {
+            name: block.name,
+            arguments: JSON.stringify(block.input),
+          },
+        });
+      }
+    }
+
+    const usage = json.usage as Record<string, number> | undefined;
+
+    return {
+      toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+      content: textContent,
+      usage: usage ? {
+        promptTokens: usage.input_tokens ?? 0,
+        completionTokens: usage.output_tokens ?? 0,
+        totalTokens: (usage.input_tokens ?? 0) + (usage.output_tokens ?? 0),
+      } : undefined,
+    };
+  }
+
+  async chatCompletion(
+    messages: Message[],
+    tools?: LLMTool[],
+    opts?: { toolChoice?: string | { type: 'function'; function: { name: string } } }
+  ): Promise<{
+    toolCalls?: ToolCall[];
+    content?: string;
+    usage?: { promptTokens: number; completionTokens: number; totalTokens: number };
+  }> {
+    const { url, body } = this.buildBody(messages, tools, opts);
+    const headers = this.buildHeaders();
 
     let response: Response;
     try {
       response = await fetch(url, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(this.config.apiKey ? { Authorization: `Bearer ${this.config.apiKey}` } : {}),
-        },
+        headers,
         body: JSON.stringify(body),
       });
     } catch (err) {
@@ -72,6 +213,13 @@ export class OpenAIClient {
     }
 
     const json = await response.json() as Record<string, unknown>;
+
+    // Route to provider-specific parser
+    if (this.config.provider === 'anthropic') {
+      return this.parseAnthropicResponse(json);
+    }
+
+    // OpenAI-compatible response parsing (OpenAI, Gemini, Ollama)
     const choice = (json.choices as any[])?.[0];
     if (!choice) {
       throw new InvokeError(InvokeErrorType.UNKNOWN, 'No choices in response', { rawResponse: json });
