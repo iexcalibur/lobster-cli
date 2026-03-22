@@ -195,7 +195,7 @@ function addBotMessage(html, actions = []) {
   }
 
   msg.innerHTML = `
-    <div class="msg-header"><span class="bot-icon">&#x1F99E;</span> LobsterCLI</div>
+    <div class="msg-header"><span class="bot-icon">L</span><span class="bot-name">lobstercli</span></div>
     <div class="msg-bubble">${html}${actionsHtml}</div>
   `;
 
@@ -224,7 +224,7 @@ function showTyping() {
   const msg = document.createElement('div');
   msg.className = 'message message-bot';
   msg.innerHTML = `
-    <div class="msg-header"><span class="bot-icon">&#x1F99E;</span> LobsterCLI</div>
+    <div class="msg-header"><span class="bot-icon">L</span><span class="bot-name">lobstercli</span></div>
     <div class="typing-indicator"><span></span><span></span><span></span></div>
   `;
   chatArea.appendChild(msg);
