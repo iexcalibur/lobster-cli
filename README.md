@@ -53,6 +53,8 @@ All three share the same core engine. **80% of features work without any AI key.
 
 ## Install
 
+**npm:** [npmjs.com/package/lobster-cli](https://www.npmjs.com/package/lobster-cli)
+
 ```bash
 npm install -g lobster-cli
 ```
