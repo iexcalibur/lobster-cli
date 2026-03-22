@@ -14,7 +14,7 @@ export function createCLI(): Command {
   program
     .name('lobster')
     .description('Unified CLI for intelligent web automation')
-    .version('0.1.0');
+    .version('0.3.0');
 
   // === lobster run <url> ===
   program

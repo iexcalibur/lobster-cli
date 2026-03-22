@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "LobsterCLI",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Page analysis, DOM extraction, API monitoring, and AI-powered summaries — powered by LobsterCLI's in-house engine.",
   "permissions": [
     "activeTab",
