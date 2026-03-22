@@ -19,8 +19,7 @@ const PROVIDERS = {
   gemini: {
     name: 'Google Gemini',
     baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai',
-    defaultModel: 'gemini-2.0-flash',
-    keyParam: true, // Gemini can also use ?key= query param
+    defaultModel: 'gemini-2.5-flash',
   },
   ollama: {
     name: 'Ollama',

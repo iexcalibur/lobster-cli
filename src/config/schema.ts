@@ -20,10 +20,10 @@ export const LLM_PROVIDERS = {
   gemini: {
     name: 'Google Gemini',
     baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai',
-    defaultModel: 'gemini-2.0-flash',
+    defaultModel: 'gemini-2.5-flash',
     keyPrefix: 'AI',
     keyEnvHint: 'https://aistudio.google.com/apikey',
-    models: ['gemini-2.0-flash', 'gemini-2.0-flash-lite', 'gemini-2.5-flash-preview-05-20', 'gemini-2.5-pro-preview-05-06'],
+    models: ['gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-2.5-pro', 'gemini-3-flash-preview'],
   },
   ollama: {
     name: 'Ollama (local, free)',
