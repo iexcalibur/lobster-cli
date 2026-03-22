@@ -1,6 +1,6 @@
 {
   "name": "lobster-cli",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Unified CLI for intelligent web automation — adapters, pipelines, AI agents, and headless browsing in one tool",
   "type": "module",
   "bin": {
