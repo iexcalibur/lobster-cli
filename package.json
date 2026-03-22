@@ -26,9 +26,21 @@
     "build": "tsup",
     "dev": "tsup --watch",
     "start": "node dist/index.js",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
   },
+  "files": [
+    "dist/",
+    "README.md",
+    "logo.svg",
+    "LICENSE"
+  ],
   "keywords": ["cli", "web-automation", "ai-agent", "scraping", "browser", "puppeteer"],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/iexcalibur/lobster-cli.git"
+  },
+  "homepage": "https://github.com/iexcalibur/lobster-cli",
   "author": "iexcalibur",
   "license": "MIT",
   "engines": {

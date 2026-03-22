@@ -1,0 +1,21 @@
+# Source (dist/ is what gets published)
+src/
+tsconfig.json
+tsup.config.ts
+
+# Extension (separate distribution via Chrome Web Store)
+extension/
+
+# Dev files
+.claude/
+.lobster/
+*.log
+.DS_Store
+node_modules/
+
+# Git
+.git/
+.gitignore
+
+# Icons and generator
+extension/icons/generate-icons.html
