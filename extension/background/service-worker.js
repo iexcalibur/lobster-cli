@@ -96,16 +96,9 @@ Answer the user's question about this page. Be concise and direct. If the inform
  */
 async function callOpenAICompatible(baseURL, apiKey, model, messages, provider) {
   const headers = { 'Content-Type': 'application/json' };
+  if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
 
-  // Gemini supports both Bearer token and ?key= query param
-  // Use query param as fallback if Bearer fails
-  let url = `${baseURL}/chat/completions`;
-  if (provider === 'gemini' && apiKey) {
-    // Gemini OpenAI-compatible endpoint works best with ?key=
-    url += `?key=${apiKey}`;
-  } else if (apiKey) {
-    headers['Authorization'] = `Bearer ${apiKey}`;
-  }
+  const url = `${baseURL}/chat/completions`;
 
   const resp = await fetch(url, {
     method: 'POST',
@@ -119,20 +112,6 @@ async function callOpenAICompatible(baseURL, apiKey, model, messages, provider) 
   });
 
   if (!resp.ok) {
-    // If Bearer auth failed for Gemini, retry with ?key= param
-    if (resp.status === 401 && provider === 'gemini' && !url.includes('?key=')) {
-      const retryUrl = `${baseURL}/chat/completions?key=${apiKey}`;
-      const retryResp = await fetch(retryUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model, messages, max_tokens: 2048, temperature: 0.3 }),
-      });
-      if (retryResp.ok) {
-        const data = await retryResp.json();
-        return data.choices?.[0]?.message?.content || 'No response from AI';
-      }
-    }
-
     const err = await resp.text();
     throw new Error(`API error (${resp.status}): ${err.slice(0, 200)}`);
   }
