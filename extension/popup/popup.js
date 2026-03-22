@@ -127,6 +127,7 @@ function resetChat() {
       <button class="suggestion-chip" data-action="links">Show key links</button>
       <button class="suggestion-chip" data-action="network">Monitor API calls</button>
       <button class="suggestion-chip" data-action="snapshot">DOM snapshot</button>
+      <button class="suggestion-chip" data-action="vision">What's on screen?</button>
     </div>
   `;
   chatArea.appendChild(welcome);
@@ -236,20 +237,24 @@ async function handleSend() {
 
   const lower = text.toLowerCase();
 
-  if (lower.includes('summar') || lower.includes('what is this page') || lower.includes('about this page')) {
+  // Check if user wants visual/screenshot analysis
+  const needsVision = /look|see|show|visual|image|screenshot|screen|what('s| is) (on|showing|displayed|visible)|describe|analyze this|picture|colour|color|layout|design|ui|logo|icon|button.*look/i.test(lower);
+
+  if (!needsVision && (lower.includes('summar') || lower.includes('what is this page') || lower.includes('about this page'))) {
     await handleAction('summary');
-  } else if (lower.includes('markdown') || lower.includes('extract')) {
+  } else if (!needsVision && (lower.includes('markdown') || lower.includes('extract'))) {
     await handleAction('extract');
-  } else if (lower.includes('form') || lower.includes('input field')) {
+  } else if (!needsVision && (lower.includes('form') || lower.includes('input field'))) {
     await handleAction('forms');
-  } else if (lower.includes('link')) {
+  } else if (!needsVision && lower.includes('link')) {
     await handleAction('links');
-  } else if (lower.includes('network') || lower.includes('api call') || lower.includes('monitor') || lower.includes('show network')) {
+  } else if (!needsVision && (lower.includes('network') || lower.includes('api call') || lower.includes('monitor') || lower.includes('show network'))) {
     await handleAction('network');
-  } else if (lower.includes('snapshot') || lower.includes('dom')) {
+  } else if (!needsVision && (lower.includes('snapshot') || lower.includes('dom'))) {
     await handleAction('snapshot');
   } else {
-    await handleAIQuestion(text);
+    // AI question — auto-include screenshot if question seems visual
+    await handleAIQuestion(text, needsVision);
   }
 }
 
@@ -273,6 +278,7 @@ async function handleAction(action) {
       links: 'Show key links',
       network: 'Monitor API calls',
       snapshot: 'DOM snapshot',
+      vision: 'What\'s on screen right now?',
     };
     addUserMessage(labels[action] || action);
     showTyping();
@@ -285,6 +291,7 @@ async function handleAction(action) {
     case 'links': return await doLinks();
     case 'network': return await doNetwork();
     case 'snapshot': return await doSnapshot();
+    case 'vision': return await handleAIQuestion('Describe in detail what is currently visible on this page. What content, images, and UI elements can you see?', true);
   }
 }
 
@@ -493,7 +500,7 @@ async function doNetwork() {
   addBotMessage(html, [{ label: 'Copy as JSON', copy: JSON.stringify(requests, null, 2) }]);
 }
 
-async function handleAIQuestion(question) {
+async function handleAIQuestion(question, includeScreenshot = false) {
   // Always re-check config in case user just saved it
   await loadAiConfig();
 
@@ -511,6 +518,19 @@ async function handleAIQuestion(question) {
   }
 
   try {
+    // Capture screenshot if needed (visual questions)
+    let screenshot = null;
+    if (includeScreenshot) {
+      const screenshotResult = await chrome.runtime.sendMessage({
+        action: 'captureScreenshot',
+        tabId: currentTab.id,
+      });
+      if (screenshotResult?.screenshot) {
+        screenshot = screenshotResult.screenshot;
+      }
+    }
+
+    // Get page text content
     await chrome.scripting.executeScript({ target: { tabId: currentTab.id }, files: ['shared/markdown.js'] });
     const markdown = await execInPage(() => {
       try { return lobsterMarkdown(); }
@@ -524,6 +544,7 @@ async function handleAIQuestion(question) {
       pageContent,
       pageUrl: currentTab.url,
       pageTitle: currentTab.title,
+      screenshot,
     });
 
     if (response.error) {

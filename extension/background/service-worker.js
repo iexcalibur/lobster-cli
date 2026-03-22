@@ -1,8 +1,8 @@
 /**
  * LobsterCLI Extension — Background Service Worker
  *
- * Handles LLM API calls (OpenAI, Anthropic, Gemini, Ollama)
- * and config storage.
+ * Handles LLM API calls (OpenAI, Anthropic, Gemini, Ollama),
+ * screenshot capture, and config storage.
  */
 
 const PROVIDERS = {
@@ -35,7 +35,12 @@ chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === 'askAI') {
     handleAskAI(message).then(sendResponse);
-    return true; // async response
+    return true;
+  }
+
+  if (message.action === 'captureScreenshot') {
+    handleCaptureScreenshot(message).then(sendResponse);
+    return true;
   }
 
   if (message.action === 'testConnection') {
@@ -45,9 +50,26 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 /**
- * Handle AI question about the page
+ * Capture a screenshot of the active tab
  */
-async function handleAskAI({ prompt, pageContent, pageUrl, pageTitle }) {
+async function handleCaptureScreenshot({ tabId }) {
+  try {
+    const dataUrl = await chrome.tabs.captureVisibleTab(null, {
+      format: 'jpeg',
+      quality: 80,
+    });
+    // Return base64 without the data:image/jpeg;base64, prefix
+    const base64 = dataUrl.replace(/^data:image\/\w+;base64,/, '');
+    return { screenshot: base64, dataUrl };
+  } catch (err) {
+    return { error: err.message };
+  }
+}
+
+/**
+ * Handle AI question about the page (with optional screenshot)
+ */
+async function handleAskAI({ prompt, pageContent, pageUrl, pageTitle, screenshot }) {
   try {
     const config = await chrome.storage.local.get(['aiProvider', 'aiApiKey', 'aiModel', 'aiBaseURL']);
 
@@ -65,23 +87,15 @@ async function handleAskAI({ prompt, pageContent, pageUrl, pageTitle }) {
 Current page: ${pageTitle}
 URL: ${pageUrl}
 
-Page content (extracted as markdown):
----
-${pageContent}
----
+${pageContent ? `Page content (extracted as markdown):\n---\n${pageContent}\n---` : ''}
 
 Answer the user's question about this page. Be concise and direct. If the information isn't on the page, say so.`;
 
-    const messages = [
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content: prompt },
-    ];
-
     let answer;
     if (provider === 'anthropic') {
-      answer = await callAnthropic(baseURL, apiKey, model, messages);
+      answer = await callAnthropic(baseURL, apiKey, model, systemPrompt, prompt, screenshot);
     } else {
-      answer = await callOpenAICompatible(baseURL, apiKey, model, messages, provider);
+      answer = await callOpenAICompatible(baseURL, apiKey, model, systemPrompt, prompt, screenshot, provider);
     }
 
     return { answer };
@@ -91,15 +105,36 @@ Answer the user's question about this page. Be concise and direct. If the inform
 }
 
 /**
- * OpenAI-compatible API call (works for OpenAI, Gemini, Ollama)
+ * OpenAI-compatible API call with vision support (OpenAI, Gemini, Ollama)
  */
-async function callOpenAICompatible(baseURL, apiKey, model, messages, provider) {
+async function callOpenAICompatible(baseURL, apiKey, model, systemPrompt, userPrompt, screenshot, provider) {
   const headers = { 'Content-Type': 'application/json' };
   if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
 
-  const url = `${baseURL}/chat/completions`;
+  // Build user message content — text + optional image
+  const userContent = [];
 
-  const resp = await fetch(url, {
+  if (screenshot) {
+    userContent.push({
+      type: 'image_url',
+      image_url: {
+        url: `data:image/jpeg;base64,${screenshot}`,
+      },
+    });
+    userContent.push({
+      type: 'text',
+      text: userPrompt,
+    });
+  }
+
+  const messages = [
+    { role: 'system', content: systemPrompt },
+    screenshot
+      ? { role: 'user', content: userContent }
+      : { role: 'user', content: userPrompt },
+  ];
+
+  const resp = await fetch(`${baseURL}/chat/completions`, {
     method: 'POST',
     headers,
     body: JSON.stringify({
@@ -120,11 +155,27 @@ async function callOpenAICompatible(baseURL, apiKey, model, messages, provider) 
 }
 
 /**
- * Anthropic Messages API call
+ * Anthropic Messages API call with vision support
  */
-async function callAnthropic(baseURL, apiKey, model, messages) {
-  const systemMsg = messages.find(m => m.role === 'system')?.content || '';
-  const userMessages = messages.filter(m => m.role !== 'system');
+async function callAnthropic(baseURL, apiKey, model, systemPrompt, userPrompt, screenshot) {
+  // Build user message content
+  const userContent = [];
+
+  if (screenshot) {
+    userContent.push({
+      type: 'image',
+      source: {
+        type: 'base64',
+        media_type: 'image/jpeg',
+        data: screenshot,
+      },
+    });
+  }
+
+  userContent.push({
+    type: 'text',
+    text: userPrompt,
+  });
 
   const resp = await fetch(`${baseURL}/messages`, {
     method: 'POST',
@@ -135,8 +186,8 @@ async function callAnthropic(baseURL, apiKey, model, messages) {
     },
     body: JSON.stringify({
       model,
-      system: systemMsg,
-      messages: userMessages,
+      system: systemPrompt,
+      messages: [{ role: 'user', content: userContent }],
       max_tokens: 2048,
       temperature: 0.3,
     }),
@@ -156,17 +207,12 @@ async function callAnthropic(baseURL, apiKey, model, messages) {
  */
 async function handleTestConnection({ provider, apiKey, model, baseURL }) {
   try {
-    const messages = [
-      { role: 'user', content: 'Say "connected" in one word.' },
-    ];
-
     let answer;
     if (provider === 'anthropic') {
-      answer = await callAnthropic(baseURL, apiKey, model, messages);
+      answer = await callAnthropic(baseURL, apiKey, model, '', 'Say "connected" in one word.', null);
     } else {
-      answer = await callOpenAICompatible(baseURL, apiKey, model, messages, provider);
+      answer = await callOpenAICompatible(baseURL, apiKey, model, '', 'Say "connected" in one word.', null, provider);
     }
-
     return { success: true, response: answer };
   } catch (err) {
     return { success: false, error: err.message };
