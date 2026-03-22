@@ -237,24 +237,22 @@ async function handleSend() {
 
   const lower = text.toLowerCase();
 
-  // Check if user wants visual/screenshot analysis
-  const needsVision = /look|see|show|visual|image|screenshot|screen|what('s| is) (on|showing|displayed|visible)|describe|analyze this|picture|colour|color|layout|design|ui|logo|icon|button.*look/i.test(lower);
-
-  if (!needsVision && (lower.includes('summar') || lower.includes('what is this page') || lower.includes('about this page'))) {
+  // Check for explicit built-in commands first (exact matches only)
+  if (/^(summarize|summarise|summary)\b/i.test(text.trim())) {
     await handleAction('summary');
-  } else if (!needsVision && (lower.includes('markdown') || lower.includes('extract'))) {
+  } else if (/^extract\b.*markdown/i.test(text.trim()) || lower === 'markdown') {
     await handleAction('extract');
-  } else if (!needsVision && (lower.includes('form') || lower.includes('input field'))) {
+  } else if (/^(detect|scan|find).*forms?\b/i.test(text.trim())) {
     await handleAction('forms');
-  } else if (!needsVision && lower.includes('link')) {
+  } else if (/^(show|list|get).*links?\b/i.test(text.trim())) {
     await handleAction('links');
-  } else if (!needsVision && (lower.includes('network') || lower.includes('api call') || lower.includes('monitor') || lower.includes('show network'))) {
+  } else if (/^(monitor|start|show).*(network|api)/i.test(text.trim())) {
     await handleAction('network');
-  } else if (!needsVision && (lower.includes('snapshot') || lower.includes('dom'))) {
+  } else if (/^(dom )?snapshot\b/i.test(text.trim())) {
     await handleAction('snapshot');
   } else {
-    // AI question — auto-include screenshot if question seems visual
-    await handleAIQuestion(text, needsVision);
+    // Ask the Brain what data sources are needed
+    await handleSmartQuestion(text);
   }
 }
 
@@ -498,6 +496,84 @@ async function doNetwork() {
     html += `<div class="network-entry"><span class="method ${req.method}">${req.method}</span><span>${escapeHtml(displayUrl.slice(0, 80))}</span></div>`;
   }
   addBotMessage(html, [{ label: 'Copy as JSON', copy: JSON.stringify(requests, null, 2) }]);
+}
+
+/**
+ * Smart question handler — asks the Brain what data to gather, then answers.
+ */
+async function handleSmartQuestion(question) {
+  await loadAiConfig();
+
+  if (!aiConfig) {
+    addBotMessage(
+      'AI features need an API key. Click the <b>gear icon</b> above to configure one.<br><br>' +
+      'Supports <b>OpenAI</b>, <b>Anthropic</b>, <b>Google Gemini</b> (free tier!), and <b>Ollama</b> (local, free).<br><br>' +
+      'Meanwhile, try the built-in commands — they work without any AI!');
+    return;
+  }
+
+  if (!pageAccessible) {
+    addBotMessage('Navigate to a website first so I can analyze its content for you.');
+    return;
+  }
+
+  try {
+    // Step 1: Ask the Brain what data sources we need
+    const brain = await chrome.runtime.sendMessage({
+      action: 'brain',
+      prompt: question,
+      pageTitle: currentTab.title,
+      pageUrl: currentTab.url,
+    });
+
+    // Step 2: Gather only what the Brain says we need
+    let screenshot = null;
+    let pageContent = '';
+    let formData = null;
+
+    if (brain.screenshot) {
+      const result = await chrome.runtime.sendMessage({
+        action: 'captureScreenshot',
+        tabId: currentTab.id,
+      });
+      if (result?.screenshot) screenshot = result.screenshot;
+    }
+
+    if (brain.markdown) {
+      await chrome.scripting.executeScript({ target: { tabId: currentTab.id }, files: ['shared/markdown.js'] });
+      const md = await execInPage(() => {
+        try { return lobsterMarkdown(); }
+        catch { return document.body?.innerText?.slice(0, 8000) || ''; }
+      });
+      pageContent = typeof md === 'string' ? md.slice(0, 8000) : '';
+    }
+
+    if (brain.forms) {
+      await chrome.scripting.executeScript({ target: { tabId: currentTab.id }, files: ['shared/form-state.js'] });
+      formData = await execInPage(() => lobsterFormState());
+      if (formData) {
+        pageContent += '\n\n--- FORM DATA ---\n' + JSON.stringify(formData, null, 2);
+      }
+    }
+
+    // Step 3: Send to AI with the right context
+    const response = await chrome.runtime.sendMessage({
+      action: 'askAI',
+      prompt: question,
+      pageContent,
+      pageUrl: currentTab.url,
+      pageTitle: currentTab.title,
+      screenshot,
+    });
+
+    if (response.error) {
+      addBotMessage('Error: ' + escapeHtml(response.error));
+    } else {
+      addBotMessage(formatAIResponse(response.answer));
+    }
+  } catch (err) {
+    addBotMessage('Error: ' + escapeHtml(err.message));
+  }
 }
 
 async function handleAIQuestion(question, includeScreenshot = false) {
