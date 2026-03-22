@@ -88,5 +88,9 @@ export { loadConfig, saveConfig, getConfigDir } from './config/index.js';
 export { LLM_PROVIDERS, configSchema } from './config/schema.js';
 export type { LobsterConfig, LLMProvider } from './config/schema.js';
 
+// ── Domain Guard — restrict which websites can be analyzed ──
+export { DomainGuard, DomainBlockedError } from './domain-guard.js';
+export type { DomainGuardConfig } from './domain-guard.js';
+
 // ── Output Formatters ──
 export { render } from './output/index.js';

@@ -26,6 +26,7 @@ export default defineConfig([
       'browser/index': 'src/browser/index.ts',
       'browser/page-adapter': 'src/browser/page-adapter.ts',
       'browser/manager': 'src/browser/manager.ts',
+      'domain-guard': 'src/domain-guard.ts',
       'browser/dom/index': 'src/browser/dom/index.ts',
       'browser/dom/compact-snapshot': 'src/browser/dom/compact-snapshot.ts',
       'browser/profiles': 'src/browser/profiles.ts',

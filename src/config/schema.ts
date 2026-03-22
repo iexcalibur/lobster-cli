@@ -59,6 +59,11 @@ export const configSchema = z.object({
     maxSteps: z.number().int().default(40),
     stepDelay: z.number().default(0.4),
   }).default({}),
+  domains: z.object({
+    allow: z.array(z.string()).default([]),
+    block: z.array(z.string()).default([]),
+    blockMessage: z.string().default(''),
+  }).default({}),
   output: z.object({
     defaultFormat: z.enum(['table', 'json', 'yaml', 'markdown', 'csv']).default('table'),
     color: z.boolean().default(true),

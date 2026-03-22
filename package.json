@@ -10,6 +10,7 @@
   "exports": {
     ".": "./dist/lib.js",
     "./brain": "./dist/brain/index.js",
+    "./domain-guard": "./dist/domain-guard.js",
     "./llm": "./dist/llm/index.js",
     "./page": "./dist/browser/page-adapter.js",
     "./dom": "./dist/browser/dom/index.js",
