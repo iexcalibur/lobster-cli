@@ -236,7 +236,7 @@ The extension opens as a side panel (like Gemini or Claude) docked to the right.
 
 ```typescript
 // Brain
-import { classifyIntent, heuristicClassify } from 'lobster-cli/brain'
+import { Brain, classifyIntent, heuristicClassify } from 'lobster-cli/brain'
 
 // Browser
 import { BrowserManager, PuppeteerPage } from 'lobster-cli/browser'
@@ -289,8 +289,131 @@ The Brain analyzes a user's question and decides what data sources are needed be
   forms: boolean,       // asking about forms
   network: boolean,     // asking about API calls
   intent: string,       // brief description
-  source: 'llm' | 'heuristic'
+  source: 'llm' | 'heuristic' | 'custom-rule'
 }
+```
+
+### Three Levels of Customization
+
+**Level 1: Use as-is (most developers)**
+
+The default Brain works out of the box. No configuration needed.
+
+```typescript
+import { classifyIntent } from 'lobster-cli/brain'
+
+const result = await classifyIntent("summarize this page", "Page Title")
+// → { screenshot: false, markdown: true, forms: false, network: false }
+```
+
+**Level 2: Add custom rules (common)**
+
+Add your own regex patterns that merge with the default classifier. Custom rules run first. If they match, their fields are merged with the default Brain's output — custom wins per-field, defaults fill the rest.
+
+```typescript
+import { Brain } from 'lobster-cli/brain'
+
+const brain = new Brain({
+  rules: [
+    { pattern: /stock|portfolio|holdings/i, screenshot: true },
+    { pattern: /api|swagger|endpoint/i, network: true },
+    { pattern: /price|cost|plan/i, screenshot: true, markdown: true },
+  ],
+})
+
+const result = await brain.classify("show me the stock portfolio", "Dashboard")
+// Custom rule matches → { screenshot: true }
+// Default Brain adds  → { markdown: true, forms: false, network: false }
+// Merged result       → { screenshot: true, markdown: true, forms: false, network: false }
+```
+
+**Level 3: Full control (advanced)**
+
+Override the classifier prompt and/or add a post-processing hook.
+
+```typescript
+const brain = new Brain({
+  // Replace the default LLM classifier prompt
+  classifierPrompt: `You are a classifier for a financial analysis app.
+    Always set screenshot=true for charts, graphs, or portfolio views.
+    Respond with JSON: { screenshot, markdown, forms, network, intent }`,
+
+  // Post-process every decision
+  onClassify: (result, ctx) => {
+    // Always screenshot for Zerodha pages
+    if (ctx.pageUrl?.includes('zerodha')) result.screenshot = true;
+    // Always check network for API-heavy sites
+    if (ctx.pageUrl?.includes('api.')) result.network = true;
+    return result;
+  },
+})
+```
+
+### Merge vs Replace Mode
+
+By default, custom rules **merge** with the default Brain. The default classifier always runs, and custom rule fields override specific values.
+
+If you want custom rules to **replace** the default Brain entirely (skip LLM/heuristic when a rule matches):
+
+```typescript
+const brain = new Brain({
+  rules: [
+    { pattern: /stock/i, screenshot: true, markdown: true },
+  ],
+  mode: 'replace',
+})
+
+const result = await brain.classify("show stock chart", "Dashboard")
+// Custom rule matches → { screenshot: true, markdown: true }
+// Default Brain SKIPPED — only custom result returned
+// → { screenshot: true, markdown: true, forms: false, network: false }
+```
+
+**When to use replace mode:**
+- You've built a domain-specific classifier and don't want the default interfering
+- Performance: skip the LLM call when a local rule already knows the answer
+- Testing: isolate custom rules from default behavior
+
+### Runtime Rule Management
+
+Add or clear rules dynamically:
+
+```typescript
+const brain = new Brain()
+
+// Add a rule at runtime
+brain.addRule({ pattern: /chart|graph/i, screenshot: true })
+
+// Clear all custom rules
+brain.clearRules()
+```
+
+### Custom Fields
+
+Custom rules can set **any field**, not just the built-in four. This lets you create domain-specific categories:
+
+```typescript
+const brain = new Brain({
+  rules: [
+    { pattern: /price|cost|plan/i, pricing: true, markdown: true },
+    { pattern: /competitor|alternative/i, competitive: true, markdown: true },
+  ],
+})
+
+const result = await brain.classify("what's the pricing?", "SaaS Site")
+// result.pricing === true  ← your custom field
+// result.markdown === true ← default field
+```
+
+Your application code can then check `result.pricing` to trigger domain-specific logic.
+
+### Backwards Compatibility
+
+The standalone `classifyIntent()` function is unchanged. It internally creates a default `Brain` with no custom rules. All existing CLI and extension code works exactly as before.
+
+```
+classifyIntent()  ← still works, no changes needed
+new Brain()       ← NEW, optional, for customization
 ```
 
 ---
