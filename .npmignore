@@ -3,6 +3,9 @@ src/
 tsconfig.json
 tsup.config.ts
 
+# Source maps (exposes original TypeScript source)
+*.map
+
 # Extension (separate distribution via Chrome Web Store)
 extension/
 

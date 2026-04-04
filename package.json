@@ -1,6 +1,6 @@
 {
   "name": "lobster-cli",
-  "version": "0.4.0",
+  "version": "0.4.2",
   "description": "Unified CLI for intelligent web automation — adapters, pipelines, AI agents, and headless browsing in one tool",
   "type": "module",
   "bin": {
@@ -32,6 +32,7 @@
   },
   "files": [
     "dist/",
+    "!dist/**/*.map",
     "README.md",
     "logo.svg",
     "LICENSE"
@@ -44,13 +45,8 @@
     "browser",
     "puppeteer"
   ],
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/iexcalibur/lobster-cli.git"
-  },
-  "homepage": "https://github.com/iexcalibur/lobster-cli",
   "author": "iexcalibur",
-  "license": "MIT",
+  "license": "SEE LICENSE IN LICENSE",
   "engines": {
     "node": ">=20.0.0"
   },
