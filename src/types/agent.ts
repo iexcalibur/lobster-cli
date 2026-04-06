@@ -11,6 +11,10 @@ export interface AgentConfig {
   llm: LLMConfig;
   maxSteps?: number;
   stepDelay?: number;
+  stealth?: boolean;
+  confirmIrreversible?: boolean;
+  dangerousKeywords?: string[];
+  validateSession?: boolean;
   customTools?: Record<string, AgentTool | null>;
   instructions?: {
     system?: string;

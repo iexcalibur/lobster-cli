@@ -13,12 +13,19 @@ import { FORM_STATE_SCRIPT } from './dom/form-state.js';
 import { INTERACTIVE_ELEMENTS_SCRIPT } from './dom/interactive.js';
 import { buildInterceptorScript, GET_INTERCEPTED_SCRIPT } from './interceptor.js';
 import { semanticFind } from './semantic-find.js';
+import { jitteredDelay } from '../utils/jitter.js';
+
+export interface PuppeteerPageOptions {
+  stealth?: boolean;
+}
 
 export class PuppeteerPage implements IPage {
   private page: Page;
+  private stealth: boolean;
 
-  constructor(page: Page) {
+  constructor(page: Page, options?: PuppeteerPageOptions) {
     this.page = page;
+    this.stealth = options?.stealth ?? false;
   }
 
   get raw(): Page { return this.page; }
@@ -128,14 +135,49 @@ export class PuppeteerPage implements IPage {
         el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
       }, ref);
       // Wait for click processing (animations, state updates)
-      await new Promise((r) => setTimeout(r, 200));
+      if (this.stealth) {
+        await jitteredDelay(200, 0.3);
+      } else {
+        await new Promise((r) => setTimeout(r, 200));
+      }
     } else {
       await this.page.click(ref);
     }
   }
 
+  /**
+   * Type text character-by-character with random inter-key delays.
+   * Used in stealth mode to mimic human typing patterns.
+   * Falls back to bulk injection for long text (>80 chars) to avoid timeouts.
+   */
+  private async typeCharByChar(text: string, baseDelayMs = 100): Promise<void> {
+    if (text.length > 80) {
+      // Long text: type first 80 chars human-like, bulk-inject the rest
+      for (const char of text.slice(0, 80)) {
+        await this.page.keyboard.type(char);
+        await jitteredDelay(baseDelayMs, 0.5);
+      }
+      // Inject remainder via clipboard-style approach
+      for (const char of text.slice(80)) {
+        await this.page.keyboard.type(char);
+      }
+    } else {
+      for (const char of text) {
+        await this.page.keyboard.type(char);
+        await jitteredDelay(baseDelayMs, 0.5);
+      }
+    }
+  }
+
   async typeText(ref: string | number, text: string): Promise<void> {
     if (typeof ref === 'number') {
+      // Stealth mode: character-by-character typing with human-like delays
+      if (this.stealth) {
+        await this.click(ref);
+        await this.typeCharByChar(text);
+        return;
+      }
+
       // First click the element (triggers full event sequence + focus)
       await this.click(ref);
 
@@ -283,7 +325,11 @@ export class PuppeteerPage implements IPage {
     }, isVertical ? delta : 0, isVertical ? 0 : delta, isVertical);
 
     // Wait for smooth scroll to settle
-    await new Promise((r) => setTimeout(r, 150));
+    if (this.stealth) {
+      await jitteredDelay(150, 0.3);
+    } else {
+      await new Promise((r) => setTimeout(r, 150));
+    }
   }
 
   async scrollToElement(ref: string | number): Promise<void> {
@@ -386,6 +432,20 @@ export class PuppeteerPage implements IPage {
   async find(query: string, options?: FindOptions): Promise<FindMatch[]> {
     const elements = await this.page.evaluate(INTERACTIVE_ELEMENTS_SCRIPT) as any[];
     return semanticFind(elements, query, options);
+  }
+
+  async waitForSelector(selector: string, timeout = 10000): Promise<void> {
+    await this.page.waitForSelector(selector, { timeout });
+  }
+
+  async waitForUrl(pattern: string, timeout = 10000): Promise<void> {
+    const regex = new RegExp(pattern);
+    const start = Date.now();
+    while (Date.now() - start < timeout) {
+      if (regex.test(this.page.url())) return;
+      await new Promise((r) => setTimeout(r, 200));
+    }
+    throw new Error(`URL did not match pattern "${pattern}" within ${timeout}ms`);
   }
 
   async close(): Promise<void> {

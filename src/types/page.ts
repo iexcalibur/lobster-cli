@@ -134,6 +134,8 @@ export interface IPage {
   getInterceptedRequests(): Promise<unknown[]>;
   screenshot(opts?: { format?: 'png' | 'jpeg'; fullPage?: boolean }): Promise<Buffer>;
   find(query: string, options?: FindOptions): Promise<FindMatch[]>;
+  waitForSelector(selector: string, timeout?: number): Promise<void>;
+  waitForUrl(pattern: string, timeout?: number): Promise<void>;
   tabs(): Promise<TabInfo[]>;
   close(): Promise<void>;
 }

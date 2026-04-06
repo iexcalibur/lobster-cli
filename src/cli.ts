@@ -159,7 +159,7 @@ export function createCLI(): Command {
 
       try {
         const rawPage = await manager.newPage();
-        const page = new PuppeteerPage(rawPage);
+        const page = new PuppeteerPage(rawPage, { stealth: config.browser.stealth });
         const start = Date.now();
 
         await page.goto(url);
@@ -261,7 +261,7 @@ export function createCLI(): Command {
 
       try {
         const rawPage = await manager.newPage();
-        const page = new PuppeteerPage(rawPage);
+        const page = new PuppeteerPage(rawPage, { stealth: config.browser.stealth });
         const result = await exploreSite(page, url, { wait: parseInt(opts.wait) });
         await page.close();
 

@@ -58,6 +58,9 @@ export const configSchema = z.object({
   agent: z.object({
     maxSteps: z.number().int().default(40),
     stepDelay: z.number().default(0.4),
+    confirmIrreversible: z.boolean().default(true),
+    dangerousKeywords: z.array(z.string()).optional(),
+    validateSession: z.boolean().default(false),
   }).default({}),
   domains: z.object({
     allow: z.array(z.string()).default([]),

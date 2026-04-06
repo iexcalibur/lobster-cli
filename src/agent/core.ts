@@ -13,6 +13,7 @@ import { createDefaultTools } from './tools/index.js';
 import { packMacroTool } from './macro-tool.js';
 import { flatTreeToString } from '../browser/dom/flat-tree.js';
 import { log } from '../utils/logger.js';
+import { jitteredDelay } from '../utils/jitter.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -25,6 +26,7 @@ export class AgentCore {
   private listeners = new Map<AgentEventType, Set<AgentEventListener>>();
   private previousElementHashes = new Set<string>();
   private totalWaitTime = 0;
+  private actionRepeatTracker = { hash: '', count: 0 };
 
   constructor(page: IPage, config: AgentConfig) {
     this.page = page;
@@ -64,6 +66,43 @@ export class AgentCore {
     this.emit({ type: 'historychange', history: this.history });
   }
 
+  /**
+   * Pre-flight session check: uses DOM heuristics to determine
+   * whether the user appears to be logged in to the current site.
+   */
+  private async validateSession(): Promise<{ loggedIn: boolean; indicators: string[] }> {
+    const result = await this.page.evaluate(`
+      (() => {
+        const body = (document.body.innerText || '').toLowerCase();
+        const loginKeywords = ['sign in', 'log in', 'login', 'create account', 'register', 'forgot password'];
+        const authKeywords = ['sign out', 'log out', 'logout', 'my account', 'profile', 'settings', 'dashboard'];
+
+        const loginHits = loginKeywords.filter(k => body.includes(k));
+        const authHits = authKeywords.filter(k => body.includes(k));
+
+        const hasAvatar = !!document.querySelector(
+          '[class*="avatar"], [class*="profile-pic"], [class*="user-icon"], ' +
+          'img[alt*="profile"], img[alt*="avatar"], [data-testid*="avatar"]'
+        );
+        const hasLoginForm = !!document.querySelector(
+          'form[action*="login"], form[action*="signin"], input[type="password"]:not([style*="display: none"])'
+        );
+
+        return { loginHits, authHits, hasAvatar, hasLoginForm };
+      })()
+    `) as { loginHits: string[]; authHits: string[]; hasAvatar: boolean; hasLoginForm: boolean };
+
+    const indicators: string[] = [];
+    if (result.hasAvatar) indicators.push('profile avatar found');
+    if (result.hasLoginForm) indicators.push('login form present');
+    if (result.authHits.length > 0) indicators.push(`auth signals: ${result.authHits.join(', ')}`);
+    if (result.loginHits.length > 0) indicators.push(`login signals: ${result.loginHits.join(', ')}`);
+
+    const loggedIn = (result.hasAvatar || result.authHits.length > result.loginHits.length) && !result.hasLoginForm;
+
+    return { loggedIn, indicators };
+  }
+
   async execute(task: string, abortSignal?: AbortSignal): Promise<ExecutionResult> {
     this.setStatus('running');
     this.history = [];
@@ -75,7 +114,10 @@ export class AgentCore {
 
     // Build tools
     const tools: Record<string, AgentTool> = {
-      ...createDefaultTools(this.page),
+      ...createDefaultTools(this.page, {
+        confirmBeforeIrreversible: this.config.confirmIrreversible,
+        dangerousKeywords: this.config.dangerousKeywords,
+      }),
       ...(this.config.customTools || {}),
     };
     for (const [name, tool] of Object.entries(tools)) {
@@ -97,6 +139,23 @@ export class AgentCore {
     }
 
     let lastURL = '';
+
+    // ── Session validation (pre-flight check) ──
+    if (this.config.validateSession) {
+      try {
+        const sessionStatus = await this.validateSession();
+        if (!sessionStatus.loggedIn) {
+          const warningMsg = `Session check: User may NOT be logged in. Signals: ${sessionStatus.indicators.join(', ')}`;
+          this.pushHistory({ type: 'observation', message: warningMsg } as ObservationEvent);
+          this.emit({ type: 'activity', kind: 'observation', message: warningMsg, step: 0 });
+          log.warn(warningMsg);
+        } else {
+          log.info(`Session validation: user appears logged in (${sessionStatus.indicators.join(', ')})`);
+        }
+      } catch {
+        log.warn('Session validation failed — proceeding anyway');
+      }
+    }
 
     for (let step = 1; step <= maxSteps; step++) {
       if (abortSignal?.aborted) {
@@ -194,6 +253,31 @@ export class AgentCore {
 
       this.emit({ type: 'activity', kind: 'executing', message: actionName, step });
 
+      // ── Stuck loop detection ──
+      if (actionName !== 'wait' && actionName !== 'done') {
+        const actionHash = `${actionName}:${JSON.stringify(actionInput)}`;
+        if (actionHash === this.actionRepeatTracker.hash) {
+          this.actionRepeatTracker.count++;
+        } else {
+          this.actionRepeatTracker = { hash: actionHash, count: 1 };
+        }
+
+        if (this.actionRepeatTracker.count >= 6) {
+          this.setStatus('error');
+          return {
+            success: false,
+            data: `Agent stuck: repeated "${actionName}" with same args 6 times consecutively`,
+            history: this.history,
+          };
+        }
+
+        if (this.actionRepeatTracker.count >= 3) {
+          const warningMsg = `STUCK: You have repeated "${actionName}" with the same arguments ${this.actionRepeatTracker.count} times. You MUST try a different approach, use ask_user for help, or call done with failure.`;
+          this.pushHistory({ type: 'observation', message: warningMsg } as ObservationEvent);
+          this.emit({ type: 'activity', kind: 'observation', message: warningMsg, step });
+        }
+      }
+
       // Track wait time
       if (actionName === 'wait') {
         const secs = (actionInput as any)?.seconds || 0;
@@ -232,7 +316,11 @@ export class AgentCore {
       }
 
       if (stepDelay > 0) {
-        await new Promise((r) => setTimeout(r, stepDelay * 1000));
+        if (this.config.stealth) {
+          await jitteredDelay(stepDelay * 1000, 0.3);
+        } else {
+          await new Promise((r) => setTimeout(r, stepDelay * 1000));
+        }
       }
     }
 

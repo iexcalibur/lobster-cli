@@ -82,7 +82,7 @@ export class SmartRouter {
       let page = null;
       if (adapter.browser !== false && adapter.strategy !== Strategy.PUBLIC) {
         const rawPage = await this.browserManager.newPage();
-        page = new PuppeteerPage(rawPage);
+        page = new PuppeteerPage(rawPage, { stealth: this.config.browser.stealth });
         if (adapter.domain) {
           await page.goto(`https://${adapter.domain}`);
         }
@@ -96,7 +96,7 @@ export class SmartRouter {
     } else if (adapter.func) {
       // Function execution
       const rawPage = await this.browserManager.newPage();
-      const page = new PuppeteerPage(rawPage);
+      const page = new PuppeteerPage(rawPage, { stealth: this.config.browser.stealth });
 
       try {
         if (adapter.domain) {
@@ -123,7 +123,7 @@ export class SmartRouter {
     }
 
     const rawPage = await this.browserManager.newPage();
-    const page = new PuppeteerPage(rawPage);
+    const page = new PuppeteerPage(rawPage, { stealth: this.config.browser.stealth });
 
     try {
       if (request.url) {
@@ -134,6 +134,10 @@ export class SmartRouter {
         llm: this.config.llm,
         maxSteps: this.config.agent.maxSteps,
         stepDelay: this.config.agent.stepDelay,
+        stealth: this.config.browser.stealth,
+        confirmIrreversible: this.config.agent.confirmIrreversible,
+        dangerousKeywords: this.config.agent.dangerousKeywords,
+        validateSession: this.config.agent.validateSession,
       });
 
       const task = request.task || `Extract content from ${request.url}`;
