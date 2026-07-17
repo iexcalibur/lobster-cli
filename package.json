@@ -1,6 +1,6 @@
 {
   "name": "lobster-cli",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Unified CLI for intelligent web automation — adapters, pipelines, AI agents, and headless browsing in one tool",
   "type": "module",
   "bin": {
@@ -47,7 +47,7 @@
     "puppeteer"
   ],
   "author": "iexcalibur",
-  "license": "SEE LICENSE IN LICENSE",
+  "license": "MIT",
   "engines": {
     "node": ">=20.0.0"
   },

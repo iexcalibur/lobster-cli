@@ -145,6 +145,4 @@ The extension has its own settings page — click the gear icon in the side pane
 
 ## License
 
-Copyright (c) 2025 iexcalibur. All rights reserved.
-
-See [LICENSE](LICENSE) for terms.
+[MIT](LICENSE) © iexcalibur
