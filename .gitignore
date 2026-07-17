@@ -4,3 +4,6 @@ dist/
 .DS_Store
 lobstercli-extension/
 .claude/
+.env
+.env.*
+lobster-history*.jsonl
