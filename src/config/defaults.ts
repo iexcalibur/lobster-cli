@@ -18,6 +18,10 @@ export const DEFAULT_CONFIG = {
     maxSteps: 40,
     stepDelay: 0.4,
   },
+  history: {
+    enabled: true,
+    dir: '',
+  },
   output: {
     defaultFormat: 'table' as const,
     color: true,

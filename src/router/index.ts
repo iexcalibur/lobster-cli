@@ -7,6 +7,7 @@ import { directFetch } from '../http/index.js';
 import { BrowserManager } from '../browser/manager.js';
 import { PuppeteerPage } from '../browser/page-adapter.js';
 import { AgentCore } from '../agent/core.js';
+import { RunRecorder } from '../history/store.js';
 import { executePipeline } from '../pipeline/index.js';
 import type { LobsterConfig } from '../config/index.js';
 import { log } from '../utils/logger.js';
@@ -141,7 +142,39 @@ export class SmartRouter {
       });
 
       const task = request.task || `Extract content from ${request.url}`;
-      const result = await agent.execute(task);
+
+      // Persist the run transcript (JSONL, appended per step — crash-safe).
+      // Recording must never break a run, so setup is exception-isolated too.
+      let recorder: RunRecorder | null = null;
+      try {
+        if (this.config.history?.enabled) {
+          recorder = new RunRecorder(
+            {
+              task,
+              url: request.url,
+              provider: this.config.llm.provider,
+              model: this.config.llm.model,
+              profile: this.config.browser.profile,
+            },
+            { dir: this.config.history.dir || undefined },
+          );
+          agent.on('historychange', (event) => {
+            if (event.type === 'historychange') recorder!.sync(event.history);
+          });
+        }
+      } catch (err) {
+        log.warn(`Run history disabled: ${err}`);
+        recorder = null;
+      }
+
+      let result: ExecutionResult;
+      try {
+        result = await agent.execute(task);
+      } catch (err) {
+        recorder?.finish({ success: false, result: String(err) });
+        throw err;
+      }
+      recorder?.finish({ success: result.success, result: result.data, history: result.history });
 
       return { data: result.data, format: request.format || 'json' };
     } finally {

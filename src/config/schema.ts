@@ -62,6 +62,10 @@ export const configSchema = z.object({
     dangerousKeywords: z.array(z.string()).optional(),
     validateSession: z.boolean().default(false),
   }).default({}),
+  history: z.object({
+    enabled: z.boolean().default(true),
+    dir: z.string().default(''),
+  }).default({}),
   domains: z.object({
     allow: z.array(z.string()).default([]),
     block: z.array(z.string()).default([]),

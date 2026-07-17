@@ -83,6 +83,10 @@ export { makeRoutingDecision } from './router/decision.js';
 export { AgentCore } from './agent/core.js';
 export type { AgentConfig, AgentTool } from './types/agent.js';
 
+// ── Run History — persist agent runs, export to ctx ──
+export { RunRecorder, listRuns, resolveRun, clearRuns, getRunsDir, exportRunsToCtxJsonl } from './history/index.js';
+export type { RunMeta, RunSummary } from './history/index.js';
+
 // ── Config ──
 export { loadConfig, saveConfig, getConfigDir } from './config/index.js';
 export { LLM_PROVIDERS, configSchema } from './config/schema.js';

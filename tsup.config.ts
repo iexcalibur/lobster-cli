@@ -35,6 +35,7 @@ export default defineConfig([
       'browser/semantic-find': 'src/browser/semantic-find.ts',
       'agent/index': 'src/agent/index.ts',
       'agent/core': 'src/agent/core.ts',
+      'history/index': 'src/history/index.ts',
       'pipeline/index': 'src/pipeline/index.ts',
       'router/index': 'src/router/index.ts',
       'router/decision': 'src/router/decision.ts',

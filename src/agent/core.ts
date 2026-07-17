@@ -62,6 +62,7 @@ export class AgentCore {
   }
 
   private pushHistory(event: HistoricalEvent): void {
+    if (!event.occurredAt) event.occurredAt = new Date().toISOString();
     this.history.push(event);
     this.emit({ type: 'historychange', history: this.history });
   }
@@ -295,6 +296,7 @@ export class AgentCore {
         action: { name: actionName, args: actionInput as Record<string, unknown> },
         output: result.toolResult,
         duration,
+        url: browserState.url || undefined,
       };
       this.pushHistory(stepEvent);
 

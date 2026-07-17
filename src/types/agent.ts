@@ -43,17 +43,21 @@ export interface AgentStepEvent {
   action: { name: string; args: Record<string, unknown> };
   output: string;
   duration: number;
+  url?: string;
+  occurredAt?: string;
 }
 
 export interface AgentErrorEvent {
   type: 'error';
   error: string;
   step: number;
+  occurredAt?: string;
 }
 
 export interface ObservationEvent {
   type: 'observation';
   message: string;
+  occurredAt?: string;
 }
 
 export type HistoricalEvent = AgentStepEvent | AgentErrorEvent | ObservationEvent;

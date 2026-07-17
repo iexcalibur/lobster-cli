@@ -9,6 +9,7 @@
 - [Brain — Intent Classifier](#brain--intent-classifier)
 - [DOM Extraction (6 Strategies)](#dom-extraction-6-strategies)
 - [AI Agent](#ai-agent)
+- [Run History](#run-history)
 - [Pipeline Engine](#pipeline-engine)
 - [Site Adapters](#site-adapters)
 - [Smart Router](#smart-router)
@@ -76,6 +77,9 @@ lobster-cli/
 │   │       ├── intercept.ts → Network interception + trigger actions
 │   │       ├── download.ts → HTTP + yt-dlp + cookie forwarding
 │   │       └── tap.ts    → Vue store action bridge (Pinia/Vuex)
+│   ├── history/          → Run persistence (JSONL per run) + ctx export
+│   │   ├── store.ts      → RunRecorder, listRuns, resolveRun, clearRuns
+│   │   └── export-ctx.ts → ctx-history-jsonl-v1 exporter
 │   ├── adapter/          → Site adapter registry
 │   ├── router/           → Smart routing (HTTP → Engine → Adapter → Agent)
 │   ├── discover/         → API discovery + adapter generation
@@ -139,6 +143,22 @@ lobster agent "what's on this page" --url https://example.com --attach
 3. LLM decides action (click, type, scroll, etc.)
 4. Execute action with full browser event simulation
 5. Repeat until done (max 40 steps)
+
+### `lobster history`
+
+Inspect and export persisted agent runs. No AI needed.
+
+```bash
+lobster history list                    # runs, newest first
+lobster history show last               # full transcript of the latest run
+lobster history show run-20260711       # id prefix works too
+lobster history export                  # all runs as ctx-history-jsonl-v1 (stdout)
+lobster history export -r last -o out.jsonl
+lobster history path                    # print the runs directory
+lobster history clear --force           # delete all runs
+```
+
+Runs are recorded automatically (disable with `lobster config set history.enabled false`). See [Run History](#run-history).
 
 ### `lobster explore <url>`
 
@@ -254,6 +274,9 @@ import {
 
 // Agent
 import { AgentCore } from 'lobster-cli/agent'
+
+// Run History
+import { RunRecorder, listRuns, resolveRun, clearRuns, exportRunsToCtxJsonl } from 'lobster-cli/history'
 
 // LLM
 import { LLM } from 'lobster-cli/llm'
@@ -470,6 +493,81 @@ Repeat  → Until done or max steps reached
 | `ask_user` | Ask user for clarification |
 | `find_element` | Find element by natural language |
 | `done` | Signal task completion |
+
+---
+
+## Run History
+
+Every `lobster agent` run is persisted as append-only JSONL — one file per run in `~/.lobster/runs/<run-id>.jsonl`:
+
+```jsonl
+{"record_type":"run_start","schema":"lobster-run-v1","run_id":"run-20260711-084118-7ecc","started_at":"...","task":"find pricing","url":"https://example.com","provider":"gemini","model":"gemini-2.5-flash"}
+{"record_type":"event","index":0,"type":"step","step":1,"reflection":{...},"action":{"name":"click_element_by_index","args":{"index":3}},"output":"Clicked element [3]","duration":812,"url":"https://example.com","occurredAt":"..."}
+{"record_type":"run_end","ended_at":"...","success":true,"result":"Pro plan is $20/mo","steps":2}
+```
+
+Events are appended as they happen, so a crashed or aborted run keeps every completed step (it just has no `run_end`). Persistence failures never break a run — the recorder warns once and disables itself.
+
+**Configuration:**
+
+```yaml
+history:
+  enabled: true   # set false to disable recording
+  dir: ''         # custom runs directory (default ~/.lobster/runs)
+```
+
+**Privacy note:** transcripts include page-derived text (tool outputs, URLs). They live only on your machine; nothing is uploaded. Disable recording per above, or wipe with `lobster history clear --force`.
+
+**ctx export** — `lobster history export` emits [ctx-history-jsonl-v1](https://github.com/ctxrs/ctx/blob/main/docs/custom-history-import-format.md), the public import format of [ctx](https://github.com/ctxrs/ctx), a local search CLI over past agent sessions:
+
+```bash
+lobster history export -o lobster-history.jsonl
+ctx import --format ctx-history-jsonl-v1 --path lobster-history.jsonl
+ctx search "pricing page"
+```
+
+**ctx history-source plugin** — for continuous sync instead of one-off files, install a plugin manifest so `ctx search` auto-refreshes LobsterCLI history (incremental via ctx's cursor handoff; `history export` detects plugin mode through `CTX_HISTORY_PLUGIN=1`, honors `CTX_HISTORY_CURSOR`, and treats an empty history as a valid empty stream):
+
+```bash
+mkdir -p ~/.ctx/plugins/lobster
+cat > ~/.ctx/plugins/lobster/ctx-history-plugin.json <<'EOF'
+{
+  "schema_version": 1,
+  "name": "lobster",
+  "display_name": "LobsterCLI browser-agent history",
+  "version": "0.5.0",
+  "history_sources": [
+    {
+      "id": "default",
+      "provider_key": "lobster",
+      "source_id": "default",
+      "source_format": "lobster-run-v1",
+      "enabled": true,
+      "refresh": "auto",
+      "command": ["lobster", "history", "export"],
+      "timeout_seconds": 300
+    }
+  ]
+}
+EOF
+ctx import --history-source lobster/default   # first import; later ones are automatic
+```
+
+Mapping (shaped so ctx's lexical search indexes every meaningful string): run → `session`, task → user `message`, agent step → `tool_call` (goal + action + output in the searchable `text` field), observations/errors → system `message`, run outcome → assistant `summary`, page navigation → `file_touch` with the URL as the path — so `ctx search --file <url>` recalls prior agent work on a site.
+
+**Library API:**
+
+```typescript
+import { RunRecorder, listRuns, resolveRun, exportRunsToCtxJsonl } from 'lobster-cli/history'
+
+// Record runs from your own AgentCore usage
+const recorder = new RunRecorder({ task, url })
+agent.on('historychange', (e) => {
+  if (e.type === 'historychange') recorder.sync(e.history)
+})
+const result = await agent.execute(task)
+recorder.finish({ success: result.success, result: result.data, history: result.history })
+```
 
 ---
 
@@ -763,6 +861,9 @@ browser:
 agent:
   maxSteps: 40
   stepDelay: 0.4
+history:
+  enabled: true
+  dir: ''
 domains:
   allow: []
   block: []

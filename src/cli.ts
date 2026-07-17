@@ -14,7 +14,7 @@ export function createCLI(): Command {
   program
     .name('lobster')
     .description('Unified CLI for intelligent web automation')
-    .version('0.3.0');
+    .version('0.5.0');
 
   // === lobster run <url> ===
   program
@@ -240,6 +240,171 @@ export function createCLI(): Command {
         display.llm.apiKey = display.llm.apiKey.slice(0, 8) + '...';
       }
       console.log(render(display, 'yaml'));
+    });
+
+  // === lobster history ===
+  const historyCmd = program.command('history').description('Inspect and export past agent runs');
+
+  historyCmd
+    .command('list')
+    .description('List persisted agent runs (newest first)')
+    .option('-f, --format <format>', 'Output format', 'table')
+    .option('-n, --limit <count>', 'Max runs to show', '20')
+    .action(async (opts) => {
+      const config = loadConfig();
+      const { listRuns } = await import('./history/index.js');
+      const parsedLimit = parseInt(opts.limit);
+      const limit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? parsedLimit : 20;
+      const runs = listRuns(config.history.dir || undefined).slice(0, limit);
+      if (runs.length === 0) {
+        log.info('No runs recorded yet. Run `lobster agent "<task>" --url <url>` first.');
+        return;
+      }
+      const data = runs.map((r) => ({
+        run: r.runId,
+        started: r.startedAt.replace('T', ' ').slice(0, 19),
+        status: r.success === undefined ? 'incomplete' : r.success ? 'ok' : 'failed',
+        steps: r.steps,
+        task: r.task.length > 50 ? r.task.slice(0, 47) + '...' : r.task,
+        url: r.url || '',
+      }));
+      console.log(render(data, opts.format as OutputFormat, ['run', 'started', 'status', 'steps', 'task', 'url']));
+    });
+
+  historyCmd
+    .command('show <run>')
+    .description('Show one run transcript (use a run id, id prefix, or "last")')
+    .action(async (runArg) => {
+      const config = loadConfig();
+      const { resolveRun } = await import('./history/index.js');
+      const run = resolveRun(runArg, config.history.dir || undefined);
+      if (run && 'ambiguous' in run) {
+        log.error(`Ambiguous run id "${runArg}" matches ${run.ambiguous.length} runs:\n  ${run.ambiguous.join('\n  ')}`);
+        process.exitCode = 1;
+        return;
+      }
+      if (!run) {
+        log.error(`Run not found: ${runArg}`);
+        process.exitCode = 1;
+        return;
+      }
+      console.log(`Run:      ${run.runId}`);
+      console.log(`Task:     ${run.task}`);
+      if (run.url) console.log(`URL:      ${run.url}`);
+      console.log(`Started:  ${run.startedAt}`);
+      if (run.endedAt) console.log(`Ended:    ${run.endedAt}`);
+      console.log(`Status:   ${run.success === undefined ? 'incomplete' : run.success ? 'success' : 'failed'}`);
+      if (run.model) console.log(`Model:    ${run.provider}/${run.model}`);
+      if (run.result) console.log(`Result:   ${run.result}`);
+      console.log('');
+      for (const event of run.events) {
+        if (event.type === 'step') {
+          console.log(`[step ${event.step}] ${event.action.name}(${JSON.stringify(event.action.args)})`);
+          if (event.reflection?.next_goal) console.log(`  goal:   ${event.reflection.next_goal}`);
+          if (event.url) console.log(`  url:    ${event.url}`);
+          console.log(`  result: ${event.output.slice(0, 200)}`);
+        } else if (event.type === 'observation') {
+          console.log(`[obs] ${event.message}`);
+        } else if (event.type === 'error') {
+          console.log(`[error @ step ${event.step}] ${event.error}`);
+        }
+      }
+    });
+
+  historyCmd
+    .command('export')
+    .description('Export runs as ctx-history-jsonl-v1 (for `ctx import`; works as a ctx history-source plugin)')
+    .option('-r, --run <run>', 'Export a single run (id, prefix, or "last")')
+    .option('-o, --out <file>', 'Write to file instead of stdout')
+    .action(async (opts) => {
+      const config = loadConfig();
+      const dir = config.history.dir || undefined;
+      const { listRuns, resolveRun, exportRunsToCtxJsonl } = await import('./history/index.js');
+
+      // ctx history-source plugin protocol: emit a valid (possibly empty)
+      // stream on stdout, honor the incremental cursor, exit 0.
+      const pluginMode = process.env.CTX_HISTORY_PLUGIN === '1';
+      let prevCursor = '';
+      if (pluginMode && process.env.CTX_HISTORY_FULL_RESCAN !== '1') {
+        prevCursor = process.env.CTX_HISTORY_CURSOR || '';
+        if (process.env.CTX_HISTORY_CURSOR_FILE) {
+          try {
+            const { readFileSync } = await import('node:fs');
+            prevCursor = readFileSync(process.env.CTX_HISTORY_CURSOR_FILE, 'utf-8').trim();
+          } catch {}
+        }
+      }
+
+      const allRuns = listRuns(dir);
+      let runs = allRuns;
+      if (opts.run) {
+        const run = resolveRun(opts.run, dir);
+        if (run && 'ambiguous' in run) {
+          log.error(`Ambiguous run id "${opts.run}" matches ${run.ambiguous.length} runs:\n  ${run.ambiguous.join('\n  ')}`);
+          process.exitCode = 1;
+          return;
+        }
+        if (!run) {
+          log.error(`Run not found: ${opts.run}`);
+          process.exitCode = 1;
+          return;
+        }
+        runs = [run];
+      } else if (prevCursor) {
+        // Watermark on endedAt || startedAt: a run exported mid-flight
+        // (no run_end yet) re-exports after it finishes, so ctx upserts
+        // its final status instead of keeping it "interrupted" forever.
+        runs = runs.filter((r) => (r.endedAt || r.startedAt) > prevCursor);
+      }
+
+      if (runs.length === 0 && !pluginMode) {
+        log.error('No runs to export.');
+        process.exitCode = 1;
+        return;
+      }
+
+      const watermark = allRuns.reduce((max, r) => {
+        const t = r.endedAt || r.startedAt;
+        return t > max ? t : max;
+      }, prevCursor || '');
+      const jsonl = exportRunsToCtxJsonl(runs, {
+        dir,
+        sourceId: pluginMode ? process.env.CTX_HISTORY_SOURCE_ID : undefined,
+        cursorAfter: pluginMode ? (watermark || new Date(0).toISOString()) : undefined,
+      });
+      if (opts.out) {
+        const { writeFileSync } = await import('node:fs');
+        writeFileSync(opts.out, jsonl, 'utf-8');
+        log.success(`Exported ${runs.length} run(s) to ${opts.out}`);
+      } else {
+        process.stdout.write(jsonl);
+      }
+    });
+
+  historyCmd
+    .command('path')
+    .description('Print the runs directory')
+    .action(async () => {
+      const config = loadConfig();
+      const { getRunsDir } = await import('./history/index.js');
+      console.log(getRunsDir(config.history.dir || undefined));
+    });
+
+  historyCmd
+    .command('clear')
+    .description('Delete all persisted runs')
+    .option('--force', 'Actually delete (required)')
+    .action(async (opts) => {
+      const config = loadConfig();
+      const { listRuns, clearRuns } = await import('./history/index.js');
+      const dir = config.history.dir || undefined;
+      const count = listRuns(dir).length;
+      if (!opts.force) {
+        log.info(`Would delete ${count} run(s). Re-run with --force to confirm.`);
+        return;
+      }
+      const removed = clearRuns(dir);
+      log.success(`Deleted ${removed} run(s).`);
     });
 
   // === lobster explore ===

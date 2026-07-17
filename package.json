@@ -1,6 +1,6 @@
 {
   "name": "lobster-cli",
-  "version": "0.4.2",
+  "version": "0.5.0",
   "description": "Unified CLI for intelligent web automation — adapters, pipelines, AI agents, and headless browsing in one tool",
   "type": "module",
   "bin": {
@@ -16,6 +16,7 @@
     "./dom": "./dist/browser/dom/index.js",
     "./pipeline": "./dist/pipeline/index.js",
     "./agent": "./dist/agent/index.js",
+    "./history": "./dist/history/index.js",
     "./router": "./dist/router/index.js",
     "./discover": "./dist/discover/index.js",
     "./config": "./dist/config/index.js",

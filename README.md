@@ -58,6 +58,7 @@ lobster agent "check inbox" --url https://gmail.com --attach
 | `lobster explore <url>` | No | Discover APIs, detect frameworks, find hidden endpoints |
 | `lobster run <url>` | No | Run site-specific adapters and automation pipelines |
 | `lobster agent "task"` | Yes | AI agent that reasons, clicks, types, and navigates for you |
+| `lobster history` | No | List, inspect, and export past agent runs |
 | `lobster setup` | No | Interactive setup wizard |
 | `lobster doctor` | No | Diagnose your setup |
 | `lobster config` | No | View and edit settings |
@@ -113,6 +114,7 @@ The extension has its own settings page — click the gear icon in the side pane
 
 - **Works without AI** — most features need zero API keys or tokens
 - **Persistent browser sessions** — login once, cookies survive restarts
+- **Run history** — every agent run saved locally as JSONL, exportable to [ctx](https://github.com/ctxrs/ctx) for search
 - **Chrome attach** — connect to your running Chrome with all your logins
 - **Stealth mode** — anti-bot detection built in
 - **Site-specific adapters** — custom automation for any website
