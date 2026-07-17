@@ -24,7 +24,7 @@ LobsterCLI is a web automation tool that works as a **CLI**, a **Chrome extensio
 npm install -g lobster-cli
 ```
 
-Requires Node.js 20+.
+Requires Node.js 20+. Full technical documentation lives in [DOCS.md](DOCS.md).
 
 ---
 
@@ -69,10 +69,7 @@ lobster agent "check inbox" --url https://gmail.com --attach
 
 Chat-style side panel that analyzes any page you're browsing.
 
-**Install from Chrome Web Store** or load the extension manually:
-1. Open `chrome://extensions/` and enable Developer mode
-2. Click "Load unpacked" and select the `extension/` folder
-3. Click the LobsterCLI icon to open the side panel
+**Install from the Chrome Web Store**, then click the LobsterCLI icon to open the side panel. (The extension source ships separately and is not part of this repository.)
 
 ### What it can do
 
@@ -90,6 +87,29 @@ Chat-style side panel that analyzes any page you're browsing.
 - PDF document analysis
 - Visual analysis — describes what's on screen
 - Smart intent detection — only gathers what's needed to answer your question
+
+---
+
+## Run History
+
+Every `lobster agent` run is saved locally as append-only JSONL (`~/.lobster/runs/`) — task, per-step reasoning, actions, outputs, page URLs, and outcome. Crash-safe, local-only, and disableable with `lobster config set history.enabled false`.
+
+```bash
+lobster history list                  # past runs, newest first
+lobster history show last             # full transcript of the latest run
+lobster history export                # export as ctx-history-jsonl-v1
+lobster history clear --force         # wipe all runs
+```
+
+Exports use the import format of [ctx](https://github.com/ctxrs/ctx), a local search CLI for agent sessions — so your agents can recall prior work on a site (previous attempts, failures, and lessons) before their next run:
+
+```bash
+lobster history export -o history.jsonl
+ctx import --format ctx-history-jsonl-v1 --path history.jsonl
+ctx search "pricing page" --file example.com
+```
+
+LobsterCLI also works as a ctx **history-source plugin** for automatic, incremental sync — no manual export step. See [DOCS.md](DOCS.md#run-history) for the plugin manifest and the library API (`lobster-cli/history`).
 
 ---
 
